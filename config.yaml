@@ -1,0 +1,9 @@
+device_id: 0
+pitch_detection: yin
+# yin parameters
+threshold: 0.1
+freq_min: 60.0
+freq_max: 500.0
+# mcleod parameters
+power_threshold: 5.0
+clarity_threshold: 0.7
