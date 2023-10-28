@@ -627,6 +627,7 @@ dependencies = [
  "audioviz",
  "cpal 0.12.1",
  "crossterm",
+ "lazy_static",
  "pitch-detection",
  "serde",
  "serde_yaml",

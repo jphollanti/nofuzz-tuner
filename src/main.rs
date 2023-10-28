@@ -12,7 +12,22 @@ use pitch_detection::detector::PitchDetector;
 use audioviz::spectrum::{config::{StreamConfig as StreamConfig2, ProcessorConfig, VolumeNormalisation, PositionNormalisation, Interpolation}, stream::Stream};
 
 use std::collections::HashMap;
+use lazy_static::lazy_static;
 
+
+// Guitar string frequencies cheat-sheet:
+lazy_static! {
+    static ref GUITAR_STRINGS: HashMap<String, f64> = {
+        let mut m = HashMap::new();
+        m.insert("E2".to_string(), 82.41);
+        m.insert("A2".to_string(), 110.00);
+        m.insert("D3".to_string(), 146.83);
+        m.insert("G3".to_string(), 196.00);
+        m.insert("B3".to_string(), 246.94);
+        m.insert("E4".to_string(), 329.63);
+        m
+    };
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
@@ -208,26 +223,10 @@ fn detect_from_input_stream<T: Sample>(device: &Device, config: &StreamConfig, m
 }
 
 fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
-    // Guitar string frequencies cheat-sheet:
-    // E2: 82.41 Hz
-    // A2: 110.00 Hz
-    // D3: 146.83 Hz
-    // G3: 196.00 Hz
-    // B3: 246.94 Hz
-    // E4: 329.63 Hz
-    let strings_freqs: HashMap<String, f64> = vec![
-        ("E2".to_string(), 82.41),
-        ("A2".to_string(), 110.00),
-        ("D3".to_string(), 146.83),
-        ("G3".to_string(), 196.00),
-        ("B3".to_string(), 246.94),
-        ("E4".to_string(), 329.63),
-    ].into_iter().collect();
-
     let mut min_distance = std::f64::INFINITY;
     let mut string_freq = 0.0;
     let mut string_key = "".to_string();
-    for (key, sf) in strings_freqs.iter() {
+    for (key, sf) in GUITAR_STRINGS.iter() {
         let distance = freq - sf;
         if distance.abs() < min_distance.abs() {
             min_distance = distance;
@@ -240,9 +239,8 @@ fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
 
 fn output(freq:f64, string_freq:f64, distance:f64, string_key:String) {
     let mut corr = "".to_string();
-    let mut dir = "";
     if distance.abs() > 0.9 {
-        dir = if distance < 0.0 {">"} else {"<"};
+        let dir = if distance < 0.0 {">"} else {"<"};
         corr = format!(" --- Correction: {} {:.1}", dir, distance);
     }
 

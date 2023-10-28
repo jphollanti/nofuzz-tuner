@@ -13,3 +13,4 @@ yin = "0.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8.26"
 audioviz = "0.5.0"
+lazy_static = "1.4"
