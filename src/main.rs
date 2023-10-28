@@ -11,6 +11,9 @@ use pitch_detection::detector::PitchDetector;
 
 use audioviz::spectrum::{config::{StreamConfig as StreamConfig2, ProcessorConfig, VolumeNormalisation, PositionNormalisation, Interpolation}, stream::Stream};
 
+use std::collections::HashMap;
+
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
     device_id: usize,
@@ -192,7 +195,8 @@ fn detect_from_input_stream<T: Sample>(device: &Device, config: &StreamConfig, m
                 let f64_vals: Vec<f64> = data.iter().map(|x| x.to_f32() as f64).collect();
                 let freq = (*detector).maybe_find_pitch(&f64_vals);
                 if freq != None {
-                    output(freq.unwrap());
+                    let s_and_f = find_string_and_distance(freq.unwrap());
+                    output(freq.unwrap(), s_and_f.0, s_and_f.1, s_and_f.2);
                 }
             },
             err_fn,
@@ -203,11 +207,49 @@ fn detect_from_input_stream<T: Sample>(device: &Device, config: &StreamConfig, m
     loop {}
 }
 
-fn output(freq:f64) {
+fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
+    // Guitar string frequencies cheat-sheet:
+    // E2: 82.41 Hz
+    // A2: 110.00 Hz
+    // D3: 146.83 Hz
+    // G3: 196.00 Hz
+    // B3: 246.94 Hz
+    // E4: 329.63 Hz
+    let strings_freqs: HashMap<String, f64> = vec![
+        ("E2".to_string(), 82.41),
+        ("A2".to_string(), 110.00),
+        ("D3".to_string(), 146.83),
+        ("G3".to_string(), 196.00),
+        ("B3".to_string(), 246.94),
+        ("E4".to_string(), 329.63),
+    ].into_iter().collect();
+
+    let mut min_distance = std::f64::INFINITY;
+    let mut string_freq = 0.0;
+    let mut string_key = "".to_string();
+    for (key, sf) in strings_freqs.iter() {
+        let distance = freq - sf;
+        if distance.abs() < min_distance.abs() {
+            min_distance = distance;
+            string_freq = *sf;
+            string_key = key.to_string();
+        }
+    }
+    return (string_freq, min_distance, string_key);
+}
+
+fn output(freq:f64, string_freq:f64, distance:f64, string_key:String) {
+    let mut corr = "".to_string();
+    let mut dir = "";
+    if distance.abs() > 0.9 {
+        dir = if distance < 0.0 {">"} else {"<"};
+        corr = format!(" --- Correction: {} {:.1}", dir, distance);
+    }
+
     let mut stdout = stdout();
     stdout.execute(cursor::Hide).unwrap();
     stdout.queue(cursor::SavePosition).unwrap();
-    stdout.write_all(format!("Frequency: {} ", freq).as_bytes()).unwrap();
+    stdout.write_all(format!("Detected frequency: {:.1} --- Closes to string {}:{} {}", freq, string_key, string_freq, corr).as_bytes()).unwrap();
     stdout.queue(cursor::RestorePosition).unwrap();
     stdout.flush().unwrap();
     stdout.queue(cursor::RestorePosition).unwrap();
