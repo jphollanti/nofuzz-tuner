@@ -1,6 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::*;
-use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use std::io::{Write, stdout};
 use serde_yaml;
 
@@ -14,6 +13,17 @@ use audioviz::spectrum::{config::{StreamConfig as StreamConfig2, ProcessorConfig
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    pub fn alert(s: &str);
+}
+
+#[wasm_bindgen]
+pub fn greet(name: &str) {
+    alert(&format!("Hello, {}!", name));
+}
 
 // Guitar string frequencies cheat-sheet:
 lazy_static! {
@@ -59,10 +69,11 @@ impl YinPitchDetector {
 impl PitchFindTrait for YinPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
         let freq = self.yin.estimate_freq(data);
-        if freq != std::f64::INFINITY {
-            return Some(freq);
+        
+        match freq {
+            Ok(value) => return Some(value),
+            Err(e) => None,
         }
-        return None;
     }
 }
 
@@ -243,7 +254,8 @@ fn output(freq:f64, string_freq:f64, distance:f64, string_key:String) {
         let dir = if distance < 0.0 {">"} else {"<"};
         corr = format!(" --- Correction: {} {:.1}", dir, distance);
     }
-
+    
+    /*
     let mut stdout = stdout();
     stdout.execute(cursor::Hide).unwrap();
     stdout.queue(cursor::SavePosition).unwrap();
@@ -252,4 +264,5 @@ fn output(freq:f64, string_freq:f64, distance:f64, string_key:String) {
     stdout.flush().unwrap();
     stdout.queue(cursor::RestorePosition).unwrap();
     stdout.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
+     */
 }
