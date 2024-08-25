@@ -247,7 +247,7 @@ fn output(freq:f64, string_freq:f64, distance:f64, string_key:String) {
     let mut stdout = stdout();
     stdout.execute(cursor::Hide).unwrap();
     stdout.queue(cursor::SavePosition).unwrap();
-    stdout.write_all(format!("Detected frequency: {:.1} --- Closes to string {}:{} {}", freq, string_key, string_freq, corr).as_bytes()).unwrap();
+    stdout.write_all(format!("Detected frequency: {:.1} --- Closest to string {}:{} {}", freq, string_key, string_freq, corr).as_bytes()).unwrap();
     stdout.queue(cursor::RestorePosition).unwrap();
     stdout.flush().unwrap();
     stdout.queue(cursor::RestorePosition).unwrap();
