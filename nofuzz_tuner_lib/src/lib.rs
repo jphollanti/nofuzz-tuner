@@ -10,6 +10,23 @@ use lazy_static::lazy_static;
 
 use serde::{Deserialize, Serialize};
 
+use wasm_bindgen::prelude::*;
+use js_sys::Float64Array;
+use console_error_panic_hook;
+
+
+#[wasm_bindgen(start)]
+pub fn start() {
+    // Set the panic hook for better error messages in the browser console
+    console_error_panic_hook::set_once();
+}
+
+
+#[wasm_bindgen]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
 // Guitar string frequencies cheat-sheet:
 lazy_static! {
     static ref GUITAR_STRINGS: HashMap<String, f64> = {
@@ -41,13 +58,25 @@ pub trait PitchFindTrait: Send + Sync  {
     fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64>;
 }
 
+#[wasm_bindgen]
 pub struct YinPitchDetector {
     yin: yin::Yin,
 }
+
+#[wasm_bindgen]
 impl YinPitchDetector {
+    #[wasm_bindgen(constructor)]
     pub fn new(threshold: f64, freq_min: f64, freq_max: f64, sample_rate: usize) -> YinPitchDetector {
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
         YinPitchDetector { yin: yin }
+    }
+
+    #[wasm_bindgen]
+    pub fn maybe_find_pitch_js(&mut self, data: &Float64Array) -> Option<f64> {
+        // Convert the Float64Array from JavaScript to a Rust slice
+        let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
+        
+        self.maybe_find_pitch(&data_vec)
     }
 }
 

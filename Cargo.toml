@@ -1,3 +1,9 @@
+[workspace]
+members = [
+    ".",                    # The main binary crate
+    "nofuzz_tuner_lib",     # The library crate
+]
+
 [package]
 name = "nofuzz_tuner"
 version = "0.1.0"
@@ -8,18 +14,6 @@ edition = "2021"
 [dependencies]
 cpal = "0.12.1"
 crossterm = "0.27.0"
-pitch-detection = "0.3.0"
-yin = "0.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8.26"
-audioviz = "0.5.0"
-lazy_static = "1.4"
-
-# Make this into a hybrid crate with both bin and lib
-[[bin]]
-name = "nofuzz_tuner_main"
-path = "src/main.rs"
-
-[lib]
-name = "nofuzz_tuner"
-crate-type = ["lib"]
+nofuzz_tuner_lib = { path = "./nofuzz_tuner_lib" }  # Link to the local library

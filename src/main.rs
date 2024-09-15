@@ -4,12 +4,12 @@ use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use std::io::{Write, stdout};
 use serde_yaml;
 
-use nofuzz_tuner::Config;
-use nofuzz_tuner::PitchFindTrait;
-use nofuzz_tuner::YinPitchDetector;
-use nofuzz_tuner::McleodPitchDetector;
-use nofuzz_tuner::FftPitchDetector;
-use nofuzz_tuner::find_string_and_distance;
+use nofuzz_tuner_lib::Config;
+use nofuzz_tuner_lib::PitchFindTrait;
+use nofuzz_tuner_lib::YinPitchDetector;
+use nofuzz_tuner_lib::McleodPitchDetector;
+use nofuzz_tuner_lib::FftPitchDetector;
+use nofuzz_tuner_lib::find_string_and_distance;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // read config.cfg
