@@ -14,3 +14,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8.26"
 audioviz = "0.5.0"
 lazy_static = "1.4"
+
+# Make this into a hybrid crate with both bin and lib
+[[bin]]
+name = "nofuzz_tuner_main"
+path = "src/main.rs"
+
+[lib]
+name = "nofuzz_tuner"
+crate-type = ["lib"]
