@@ -4,12 +4,184 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pitch Detector</title>
+    <style>
+        body {
+            background-color: black;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        canvas {
+            margin: 20px auto;
+            border: 1px solid rgb(54, 54, 54);
+        }
+    </style>
 </head>
 <body>
     <h1>Pitch Detection with WASM</h1>
     <button id="start">Start Recording</button>
     <button id="stop">Stop Recording</button>
     <div id="pitch"></div>
+
+    <canvas id="linearScale" width="500px" height="500px"></canvas>
+    <script>
+        const strings = [
+            { name: 'E2', frequency: 82.41 },
+            { name: 'A2', frequency: 110.00 },
+            { name: 'D3', frequency: 146.83 },
+            { name: 'G3', frequency: 196.00 },
+            { name: 'B3', frequency: 246.94 },
+            { name: 'E4', frequency: 329.63 }
+        ];
+
+        // Add range to strings
+        strings.forEach((s, i) => {
+            s.range = {
+                min: s.frequency - 10,
+                max: s.frequency + 10
+            };
+        });
+
+        const scaleString = 'E2';
+
+        function drawScale() {
+            // Get the canvas element and context
+            const canvas = document.getElementById('linearScale');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas dimensions
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Draw the linear scale
+            const startX = 0; // Starting X position of the scale
+            const endX = canvas.clientWidth; // Ending X position of the scale
+            const scaleY = height / 2; // Vertical position of the scale
+
+            const centerX = (endX - startX) / 2;
+            const drawScaleYMin = scaleY - 100;
+            const drawScaleYMax = scaleY + 100;
+
+            // draw center line
+            ctx.beginPath();
+            ctx.strokeStyle = '#ffffff';
+            ctx.moveTo(centerX, drawScaleYMin); // Start above the main line
+            ctx.lineTo(centerX, drawScaleYMax); // End below the main line
+            ctx.stroke();
+
+            let string = strings.find(s => s.name === scaleString);
+            // Draw the ticks on the scale
+            
+            let j = 1;
+            /*
+            for (let i = string.frequency; i > string.range.min; i -= 1) {
+                let posx = findXForFrequency(centerX, i);
+                ctx.beginPath();
+                ctx.moveTo(posx, drawScaleYMin + (j * 10)); // Start above the main line
+                ctx.lineTo(posx, drawScaleYMax - (j * 10)); // End below the main line
+                ctx.strokeStyle = 'white';
+                ctx.stroke();
+                j += 1;
+            }
+            j = 1;
+            */
+            /*
+            for (let i = string.frequency; i < string.range.max; i += 1) {
+                let posx = findXForFrequency(centerX, i);
+                ctx.beginPath();
+                ctx.moveTo(posx, drawScaleYMin + (j * 10)); // Start above the main line
+                ctx.lineTo(posx, drawScaleYMax - (j * 10)); // End below the main line
+                ctx.strokeStyle = 'white';
+                ctx.stroke();
+                j += 1;
+            }/**/
+
+            const label = "Tuning to string: " + scaleString;
+            const label2 = strings.find(s => s.name === scaleString).frequency + " Hz";
+            ctx.font = '12px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, centerX, scaleY - 150); // Label below the tick
+            ctx.fillText(label2, centerX, scaleY + 150); // Label below the tick
+        }
+        drawScale();
+
+        function findXForFrequency(centerX, frequency) {
+            let string = strings.find(s => s.name === scaleString);
+            let x = 0;
+            if (frequency < string.frequency) {
+                let xx = (frequency - string.range.min) / (string.frequency - string.range.min);
+                if (xx < 0) {
+                    xx = 0;
+                }
+                x = centerX * xx;
+            } else if (frequency > string.frequency) {
+                let xx = (frequency - string.frequency) / (string.range.max - string.frequency);
+                if (xx > 1) {
+                    xx = 1;
+                }
+                x = centerX + centerX * xx;
+            }
+            return x;
+        }
+        
+        // Function to draw the indicator at a specific value
+        function drawIndicator(value) {
+            const canvas = document.getElementById('linearScale');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas dimensions
+            const width = canvas.width;
+            const height = canvas.height;
+
+            const startX = 0; // Starting X position of the scale
+            const endX = canvas.clientWidth; // Ending X position of the scale
+            const scaleY = height / 2; // Vertical position of the scale
+            const centerX = (endX - startX) / 2;
+
+            // Calculate the X position of the indicator based on the value
+            let string = strings.find(s => s.name === scaleString);
+
+            let indicatorX = centerX;
+            // map value to string.range and find x position
+            if (value < string.frequency) {
+                let xx = (value - string.range.min) / (string.frequency - string.range.min);
+                if (xx < 0) {
+                    xx = 0;
+                }
+                indicatorX = centerX * xx;
+            } else if (value > string.frequency) {
+                let xx = (value - string.frequency) / (string.range.max - string.frequency);
+                if (xx > 1) {
+                    xx = 1;
+                }
+                indicatorX = centerX + centerX * xx;
+            }
+
+            const dist = Math.abs(value - string.frequency);
+            let color = 'green';
+            if (dist > 5) {
+                color = 'red';
+            } else if (dist > 2) {
+                color = 'yellow';
+            }
+            // Draw the indicator
+            ctx.beginPath();
+            ctx.arc(indicatorX, scaleY, 10, 0, 2 * Math.PI); // Circle indicator
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // Draw a line connecting the indicator to the scale
+            ctx.beginPath();
+            ctx.moveTo(indicatorX, scaleY - 20);
+            ctx.lineTo(indicatorX, scaleY + 20);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        // Call the drawIndicator function with the desired position on the scale (-5 to 5)
+        drawIndicator(81.9); // Change this value to move the indicator along the scale
+        
+    </script>
 
     <script type="module">
         
