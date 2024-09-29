@@ -41,12 +41,11 @@
             };
         });
 
-        const scaleString = 'E2';
-
-        function drawScale() {
+        function drawScale(scaleString) {
             // Get the canvas element and context
             const canvas = document.getElementById('linearScale');
             const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Set canvas dimensions
             const width = canvas.width;
@@ -68,33 +67,6 @@
             ctx.lineTo(centerX, drawScaleYMax); // End below the main line
             ctx.stroke();
 
-            let string = strings.find(s => s.name === scaleString);
-            // Draw the ticks on the scale
-            
-            let j = 1;
-            /*
-            for (let i = string.frequency; i > string.range.min; i -= 1) {
-                let posx = findXForFrequency(centerX, i);
-                ctx.beginPath();
-                ctx.moveTo(posx, drawScaleYMin + (j * 10)); // Start above the main line
-                ctx.lineTo(posx, drawScaleYMax - (j * 10)); // End below the main line
-                ctx.strokeStyle = 'white';
-                ctx.stroke();
-                j += 1;
-            }
-            j = 1;
-            */
-            /*
-            for (let i = string.frequency; i < string.range.max; i += 1) {
-                let posx = findXForFrequency(centerX, i);
-                ctx.beginPath();
-                ctx.moveTo(posx, drawScaleYMin + (j * 10)); // Start above the main line
-                ctx.lineTo(posx, drawScaleYMax - (j * 10)); // End below the main line
-                ctx.strokeStyle = 'white';
-                ctx.stroke();
-                j += 1;
-            }/**/
-
             const label = "Tuning to string: " + scaleString;
             const label2 = strings.find(s => s.name === scaleString).frequency + " Hz";
             ctx.font = '12px Arial';
@@ -103,29 +75,9 @@
             ctx.fillText(label, centerX, scaleY - 150); // Label below the tick
             ctx.fillText(label2, centerX, scaleY + 150); // Label below the tick
         }
-        drawScale();
-
-        function findXForFrequency(centerX, frequency) {
-            let string = strings.find(s => s.name === scaleString);
-            let x = 0;
-            if (frequency < string.frequency) {
-                let xx = (frequency - string.range.min) / (string.frequency - string.range.min);
-                if (xx < 0) {
-                    xx = 0;
-                }
-                x = centerX * xx;
-            } else if (frequency > string.frequency) {
-                let xx = (frequency - string.frequency) / (string.range.max - string.frequency);
-                if (xx > 1) {
-                    xx = 1;
-                }
-                x = centerX + centerX * xx;
-            }
-            return x;
-        }
         
         // Function to draw the indicator at a specific value
-        function drawIndicator(value) {
+        function drawIndicator(scaleString, value) {
             const canvas = document.getElementById('linearScale');
             const ctx = canvas.getContext('2d');
 
@@ -177,9 +129,20 @@
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             ctx.stroke();
+
+            const label = value.toFixed(1) + " Hz";
+            ctx.font = '12px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            let labelX = indicatorX;
+            if (labelX < 30) {
+                labelX = 30;
+            } else if (labelX > canvas.width - 30) {
+                labelX = canvas.width - 30;
+            }
+            ctx.fillText(label, labelX, scaleY + 50); // Label below the tick
+
         }
-        // Call the drawIndicator function with the desired position on the scale (-5 to 5)
-        drawIndicator(81.9); // Change this value to move the indicator along the scale
         
     </script>
 
@@ -191,6 +154,7 @@
         let scriptProcessor;
         let input;
         let pitchOutputElement = document.getElementById('pitch');
+        let detectedString = 'NAN';
 
         function find_string_and_distance(pitch) {
             const strings = [
@@ -236,12 +200,11 @@
                 const pitch = detector.maybe_find_pitch_js(audioData);
                 if (pitch) {
                     const sd = find_string_and_distance(pitch);
-                    let corr = "";
-                    if (Math.abs(sd.distance) > .9) {
-                        const dir = sd.distance < 0.0 ? ">" : "<";
-                        corr = `, correction: ${dir} ${sd.distance.toFixed(2)}`;
+                    if (detectedString !== sd.string) {
+                        detectedString = sd.string;
                     }
-                    pitchOutputElement.innerText = `Pitch: ${pitch} Hz, Tuning to string: ${sd.string}${corr}`;
+                    drawScale(detectedString);
+                    drawIndicator(detectedString, pitch);
                 }
             };
         }
