@@ -3,27 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pitch Detector</title>
+    <title>No Fuzz Tuner</title>
     <style>
-        body {
-            background-color: black;
-            font-family: Arial, sans-serif;
-            color: white;
+        /* Reset default margins and paddings */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #121212;
         }
         canvas {
-            margin: 20px auto;
-            border: 1px solid rgb(54, 54, 54);
+            display: block; /* Removes unwanted scrollbars */
+            width: 80%;
+            height: 80%;
+            margin: 0 10%;
+            background-color: #1E1E1E;
+        }
+        #controls-container {
+            position: fixed;
+            width: 100%;
+            bottom: 5%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #controls {
+            padding: 10px;
+            background-color: rgba(99, 99, 99, 0.5);
+            color: white;
+        }
+        button {
+            background-color: #1F1F1F;
+            color: #E0E0E0;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            width: 50%;
+            display: block;
+            float: left;
+        }
+        button#start {
+            background-color: #4CAF50;
+        }
+
+        button#stop {
+            background-color: #FF4C4C;
+        }
+
+        button#start:hover, button#stop:hover {
+            background-color: #333333;
+        }
+
+        button#stop[disabled=disabled], button#stop:disabled,
+        button#start[disabled=disabled], button#start:disabled {
+            background-color: #333333;
+            cursor: not-allowed;
+            color: #1E1E1E;
         }
     </style>
 </head>
 <body>
-    <h1>Pitch Detection with WASM</h1>
-    <button id="start">Start Recording</button>
-    <button id="stop">Stop Recording</button>
-    <div id="pitch"></div>
-
-    <canvas id="linearScale" width="500px" height="500px"></canvas>
+    <div id="controls-container">
+        <div id="controls">
+            <button id="start">Start</button>
+            <button id="stop">Stop</button>
+        </div>
+    </div>
+    <canvas id="linearScale"></canvas>
     <script>
+
+        const start = document.getElementById('start');
+        const end = document.getElementById('stop');
+
+        end.disabled = true;
+
+        const canvas = document.getElementById('linearScale');
+        const ctx = canvas.getContext('2d');
+
         const strings = [
             { name: 'E2', frequency: 82.41 },
             { name: 'A2', frequency: 110.00 },
@@ -41,28 +102,31 @@
             };
         });
 
-        function drawScale(scaleString) {
-            // Get the canvas element and context
-            const canvas = document.getElementById('linearScale');
-            const ctx = canvas.getContext('2d');
+        function resetCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
 
+        function drawScale(scaleString) {
             // Set canvas dimensions
             const width = canvas.width;
             const height = canvas.height;
 
             // Draw the linear scale
-            const startX = 0; // Starting X position of the scale
-            const endX = canvas.clientWidth; // Ending X position of the scale
-            const scaleY = height / 2; // Vertical position of the scale
+            const startX = 0;
+            const endX = canvas.clientWidth;
+            const scaleY = height / 2;
 
             const centerX = (endX - startX) / 2;
-            const drawScaleYMin = scaleY - 100;
-            const drawScaleYMax = scaleY + 100;
+            const drawScaleYMin = scaleY - (height * .20);
+            const drawScaleYMax = scaleY + (height * .20);
+
+            console.log(width, height);
+            console.log('startX', startX, 'endX', endX, 'scaleY', scaleY);
 
             // draw center line
             ctx.beginPath();
-            ctx.strokeStyle = '#ffffff';
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = (height * .012);
             ctx.moveTo(centerX, drawScaleYMin); // Start above the main line
             ctx.lineTo(centerX, drawScaleYMax); // End below the main line
             ctx.stroke();
@@ -72,8 +136,8 @@
             ctx.font = '12px Arial';
             ctx.fillStyle = 'white';
             ctx.textAlign = 'center';
-            ctx.fillText(label, centerX, scaleY - 150); // Label below the tick
-            ctx.fillText(label2, centerX, scaleY + 150); // Label below the tick
+            ctx.fillText(label, centerX, scaleY - (height * .30)); // Label below the tick
+            ctx.fillText(label2, centerX, scaleY + (height * .30)); // Label below the tick
         }
         
         // Function to draw the indicator at a specific value
@@ -110,24 +174,59 @@
             }
 
             const dist = Math.abs(value - string.frequency);
-            let color = 'green';
+            let color = '#4CAF50';
             if (dist > 5) {
-                color = 'red';
+                color = '#FF4C4C';
             } else if (dist > 2) {
-                color = 'yellow';
+                color = '#FFEB3B';
             }
-            // Draw the indicator
-            ctx.beginPath();
-            ctx.arc(indicatorX, scaleY, 10, 0, 2 * Math.PI); // Circle indicator
-            ctx.fillStyle = color;
-            ctx.fill();
+
+            if (dist > 1) {
+                let ax = indicatorX
+                let ay = scaleY - (height * .03)
+                let bx = indicatorX + (height * .03)
+                let by = scaleY
+                let cx = indicatorX
+                let cy = scaleY + (height * .03)
+                if (value > string.frequency) {
+                    bx = indicatorX - (height * .03)
+                }
+
+                ctx.beginPath();
+                ctx.fillStyle = color;
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(bx, by);
+                ctx.lineTo(cx, cy);
+                ctx.fill();
+
+                if (dist > 5) {
+                    ax = indicatorX + (height * .015)
+                    ay = scaleY - (height * .03)
+                    bx = indicatorX + (height * .03) + (height * .015)
+                    by = scaleY
+                    cx = indicatorX + (height * .015)
+                    cy = scaleY + (height * .03)
+                    if (value > string.frequency) {
+                        ax = indicatorX - (height * .015)
+                        bx = indicatorX - (height * .03) - (height * .015)
+                        cx = indicatorX - (height * .015)
+                    }
+
+                    ctx.beginPath();
+                    ctx.fillStyle = '#FF5E5E';
+                    ctx.moveTo(ax, ay);
+                    ctx.lineTo(bx, by);
+                    ctx.lineTo(cx, cy);
+                    ctx.fill();
+                }
+            }
 
             // Draw a line connecting the indicator to the scale
             ctx.beginPath();
-            ctx.moveTo(indicatorX, scaleY - 20);
-            ctx.lineTo(indicatorX, scaleY + 20);
+            ctx.moveTo(indicatorX, scaleY - (height * .07));
+            ctx.lineTo(indicatorX, scaleY + (height * .07));
             ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = (height * .012);
             ctx.stroke();
 
             const label = value.toFixed(1) + " Hz";
@@ -140,10 +239,39 @@
             } else if (labelX > canvas.width - 30) {
                 labelX = canvas.width - 30;
             }
-            ctx.fillText(label, labelX, scaleY + 50); // Label below the tick
+
+
+            const tw = ctx.measureText(label).width + height * .03;
+            //const th = parseInt(font, 10)
+            ctx.fillStyle = '#121212';
+            ctx.fillRect(labelX - (tw/2), scaleY + (height * .10), tw, 30);
+
+            ctx.fillStyle = 'white';
+            ctx.fillText(label, labelX, scaleY + (height * .13));
 
         }
-        
+
+        // JavaScript to adjust the canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth * 0.8;
+            canvas.height = window.innerHeight * 0.8;
+
+            // Redraw or update your canvas content here if necessary
+            //const context = canvas.getContext('2d');
+            // Example: Fill the canvas with a color
+            //context.fillStyle = '#f0f0f0';
+            //context.fillRect(0, 0, canvas.width, canvas.height);
+
+            // testing 
+            drawScale('E2');
+            drawIndicator('E2', 104.31);
+        }
+
+        // Resize the canvas when the window is loaded or resized
+        window.addEventListener('load', resizeCanvas);
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
     </script>
 
     <script type="module">
@@ -203,16 +331,21 @@
                     if (detectedString !== sd.string) {
                         detectedString = sd.string;
                     }
+                    resetCanvas();
                     drawScale(detectedString);
                     drawIndicator(detectedString, pitch);
                 }
             };
         }
         document.getElementById('start').onclick = async function() {
+            start.disabled = true;
+            end.disabled = false;
             await run();
         };
 
         document.getElementById('stop').onclick = function() {
+            start.disabled = false;
+            end.disabled = true;
             scriptProcessor.disconnect();
             input.disconnect();
             audioContext.close();
