@@ -339,24 +339,11 @@
 </section>
 
 <style>
-	/* Reset default margins and paddings */
-	* {
-		margin: 0;
-		padding: 0;
-		box-sizing: border-box;
-	}
-	html, body {
-		margin: 0;
-		padding: 0;
-		height: 100%;
-		background-color: #121212;
-	}
 	canvas {
 		display: block; /* Removes unwanted scrollbars */
 		width: 80%;
 		height: 80%;
 		margin: 0 10%;
-		background-color: #1E1E1E;
 	}
 	#controls-container {
 		position: fixed;
@@ -411,19 +398,4 @@
 		width: 100%;
 	}
 
-	.welcome {
-		display: block;
-		position: relative;
-		width: 100%;
-		height: 0;
-		padding: 0 0 calc(100% * 495 / 2048) 0;
-	}
-
-	.welcome img {
-		position: absolute;
-		width: 100%;
-		height: 100%;
-		top: 0;
-		display: block;
-	}
 </style>

@@ -12,6 +12,6 @@ Webassembly library is contained in folder nofuzz_tuner_lib.
 
 Combile it with `webassembly-build.sh` script. 
 
-In a separate terminal, run up a simple python web server to serve index.html `python -m http.server`
+Frontend is in folder nofuzz-tuner-frontend. Run `npm run dev` to start a local server. 
 
-Open browser to `http://localhost:8000`. This is a dummy implementation that passes in hardcoded frequencies to Rust. You can see output in the browser console. 
+There is also a script `recompile-and-run.sh` that compiles the Rust library and runs the frontend. 
