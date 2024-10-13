@@ -380,8 +380,8 @@
 		background-color: #333333;
 	}
 
-	button#stop[disabled=disabled], button#stop:disabled,
-	button#start[disabled=disabled], button#start:disabled {
+	button#stop:disabled,
+	button#start:disabled {
 		background-color: #333333;
 		cursor: not-allowed;
 		color: #1E1E1E;
