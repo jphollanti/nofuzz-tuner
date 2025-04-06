@@ -11,10 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check out the repository
+      # Check out the repository
       - uses: actions/checkout@v3
 
-      # Step 2: Install the latest Rust stable toolchain + components
+      # Install system dependencies for ALSA
+      - name: Install ALSA library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+          
+      # Install the latest Rust stable toolchain + components
       - name: Set up Rust stable
         uses: actions-rs/toolchain@v1
         with:
@@ -22,26 +28,26 @@ jobs:
           components: rustfmt, clippy
           override: true  # Make this toolchain default
 
-      # Step 3: Show cargo version (just for logging)
+      # Show cargo version (just for logging)
       - name: Check Cargo version
         run: cargo --version
 
-      # Step 4: Check formatting
+      # Check formatting
       - name: Check formatting with rustfmt
         run: cargo fmt -- --check
 
-      # Step 5: Run clippy linter
+      # Run clippy linter
       - name: Lint with clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
 
-      # Step 6: Run tests
+      # Run tests
       - name: Run tests
         run: cargo test --all-features --all-targets
 
-      # Step 7: Install wasm-pack
+      # Install wasm-pack
       - name: Install wasm-pack
         run: cargo install wasm-pack
 
-      # Step 8: Build your WASM package
+      # Build your WASM package
       - name: Build with wasm-pack
         run: wasm-pack build --target web
