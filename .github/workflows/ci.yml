@@ -50,4 +50,5 @@ jobs:
 
       # Build your WASM package
       - name: Build with wasm-pack
-        run: wasm-pack build --target web
+        working-directory: nofuzz_tuner_lib
+        run: wasm-pack build --release --target web
