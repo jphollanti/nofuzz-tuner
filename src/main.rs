@@ -1,7 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::*;
 use crossterm::{cursor, terminal, ExecutableCommand, QueueableCommand};
-use serde_yaml;
 use std::io::{stdout, Write};
 
 use nofuzz_tuner_lib::find_string_and_distance;
@@ -10,6 +9,8 @@ use nofuzz_tuner_lib::FftPitchDetector;
 use nofuzz_tuner_lib::McleodPitchDetector;
 use nofuzz_tuner_lib::PitchFindTrait;
 use nofuzz_tuner_lib::YinPitchDetector;
+use std::thread;
+use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // read config.cfg
@@ -31,9 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let sample_rate = stream_config.sample_rate.0 as usize;
-    let detector: Box<dyn PitchFindTrait>;
-
-    match config.pitch_detection.as_str() {
+    let detector: Box<dyn PitchFindTrait> = match config.pitch_detection.as_str() {
         "yin" => {
             let yin = YinPitchDetector::new(
                 config.threshold,
@@ -41,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.freq_max,
                 sample_rate,
             );
-            detector = Box::new(yin);
+            Box::new(yin)
         }
         "mcleod" => {
             let mcleod = McleodPitchDetector::new(
@@ -51,24 +50,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.power_threshold,
                 config.clarity_threshold,
             );
-            detector = Box::new(mcleod);
+            Box::new(mcleod)
         }
         "fft" => {
             let fft = FftPitchDetector::new();
-            detector = Box::new(fft);
+            Box::new(fft)
         }
         _ => panic!("Invalid pitch detection method"),
     };
 
     match supported_config.sample_format() {
         cpal::SampleFormat::F32 => {
-            detect_from_input_stream::<f32>(&device, &stream_config.into(), detector)
+            detect_from_input_stream::<f32>(&device, &stream_config, detector)
         }
         cpal::SampleFormat::I16 => {
-            detect_from_input_stream::<i16>(&device, &stream_config.into(), detector)
+            detect_from_input_stream::<i16>(&device, &stream_config, detector)
         }
         cpal::SampleFormat::U16 => {
-            detect_from_input_stream::<u16>(&device, &stream_config.into(), detector)
+            detect_from_input_stream::<u16>(&device, &stream_config, detector)
         }
     }
 
@@ -84,11 +83,11 @@ fn detect_from_input_stream<T: Sample>(
 
     let stream = device
         .build_input_stream(
-            &config,
+            config,
             move |data: &[T], _| {
                 let f64_vals: Vec<f64> = data.iter().map(|x| x.to_f32() as f64).collect();
                 let freq = (*detector).maybe_find_pitch(&f64_vals);
-                if freq != None {
+                if freq.is_some() {
                     let s_and_f = find_string_and_distance(freq.unwrap());
                     output(freq.unwrap(), s_and_f.0, s_and_f.1, s_and_f.2);
                 }
@@ -98,7 +97,9 @@ fn detect_from_input_stream<T: Sample>(
         .unwrap();
 
     stream.play().unwrap();
-    loop {}
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn output(freq: f64, string_freq: f64, distance: f64, string_key: String) {

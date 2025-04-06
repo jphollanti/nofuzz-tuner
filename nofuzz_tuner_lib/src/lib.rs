@@ -16,7 +16,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use console_error_panic_hook;
 use js_sys::Float64Array;
 use wasm_bindgen::prelude::*;
 
@@ -77,7 +76,7 @@ impl YinPitchDetector {
         sample_rate: usize,
     ) -> YinPitchDetector {
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
-        YinPitchDetector { yin: yin }
+        YinPitchDetector { yin }
     }
 
     #[wasm_bindgen]
@@ -92,10 +91,10 @@ impl YinPitchDetector {
 impl PitchFindTrait for YinPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
         let freq = self.yin.estimate_freq(data);
-        if freq != std::f64::INFINITY {
+        if freq != f64::INFINITY {
             return Some(freq);
         }
-        return None;
+        None
     }
 }
 
@@ -134,15 +133,21 @@ impl PitchFindTrait for McleodPitchDetector {
             self.power_threshold,
             self.clarity_threshold,
         );
-        if pitch.is_some() {
-            return Some(pitch.unwrap().frequency);
+        if let Some(p) = pitch {
+            return Some(p.frequency);
         }
-        return None;
+        None
     }
 }
 
 pub struct FftPitchDetector {
     stream: Stream,
+}
+
+impl Default for FftPitchDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FftPitchDetector {
@@ -180,7 +185,7 @@ impl PitchFindTrait for FftPitchDetector {
         let mut highest: f32 = 0.0;
 
         let frequencies = self.stream.get_frequencies();
-        for (_, frequency) in frequencies.iter().enumerate() {
+        for frequency in frequencies.iter() {
             for item in frequency {
                 if item.volume > hvol {
                     hvol = item.volume;
@@ -188,12 +193,12 @@ impl PitchFindTrait for FftPitchDetector {
                 }
             }
         }
-        return Some(highest as f64);
+        Some(highest as f64)
     }
 }
 
 pub fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
-    let mut min_distance = std::f64::INFINITY;
+    let mut min_distance = f64::INFINITY;
     let mut string_freq = 0.0;
     let mut string_key = "".to_string();
     for (key, sf) in GUITAR_STRINGS.iter() {
@@ -204,5 +209,5 @@ pub fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
             string_key = key.to_string();
         }
     }
-    return (string_freq, min_distance, string_key);
+    (string_freq, min_distance, string_key)
 }
