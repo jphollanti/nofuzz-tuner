@@ -13,6 +13,11 @@ jobs:
     steps:
       # Check out the repository
       - uses: actions/checkout@v3
+      
+      # Invalidate cache for wasm-pack every 24 hours
+      - name: Set cache date
+        id: cache-date
+        run: echo "CACHE_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
       - name: Cache Cargo registry and build
         uses: actions/cache@v3
@@ -29,7 +34,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cargo/bin/wasm-pack
-          key: ${{ runner.os }}-wasm-pack-v0.10.1
+          key: ${{ runner.os }}-wasm-pack-v0.10.1-${{ env.CACHE_DATE }}
 
       # Install system dependencies for ALSA
       - name: Install ALSA library
