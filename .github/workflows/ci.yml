@@ -14,6 +14,16 @@ jobs:
       # Check out the repository
       - uses: actions/checkout@v3
 
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            nofuzz_tuner_lib/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       # Install system dependencies for ALSA
       - name: Install ALSA library
         run: |
