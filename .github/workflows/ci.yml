@@ -77,7 +77,7 @@ jobs:
 
       # Upload the build folder as an artifact for the next job
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: nofuzz-tuner-frontend/build
   
@@ -90,8 +90,8 @@ jobs:
 
     steps:
       # Download the artifact created by the build job
-      - uses: actions/download-pages-artifact@v1
+      - uses: actions/download-pages-artifact@v4
 
       # Deploy to GitHub Pages
       - name: Deploy to Pages
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v4
