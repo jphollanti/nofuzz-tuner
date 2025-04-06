@@ -24,6 +24,13 @@ jobs:
             nofuzz_tuner_lib/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      # Cache wasm-pack binary
+      - name: Cache wasm-pack binary
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/wasm-pack
+          key: ${{ runner.os }}-wasm-pack-v0.10.1
+
       # Install system dependencies for ALSA
       - name: Install ALSA library
         run: |
@@ -54,9 +61,14 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --all-targets
 
-      # Install wasm-pack
+      # Install wasm-pack (only if not already cached)
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: |
+          if [ ! -f ~/.cargo/bin/wasm-pack ]; then
+            cargo install wasm-pack
+          else
+            echo "wasm-pack already installed, skipping installation."
+          fi
 
       # Build your WASM package
       - name: Build with wasm-pack
