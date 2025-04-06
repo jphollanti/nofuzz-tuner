@@ -19,17 +19,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev
-
-      # Set up Rust (stable), then add rustfmt and clippy
-      - name: Set up Rust
-        uses: actions/setup-rust@v1
+          
+      # Install the latest Rust stable toolchain + components
+      - name: Set up Rust stable
+        uses: actions-rs/toolchain@v1
         with:
-          rust-version: stable
-
-      - name: Install rustfmt and clippy
-        run: |
-          rustup component add rustfmt
-          rustup component add clippy
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true  # Make this toolchain default
 
       # Show cargo version (just for logging)
       - name: Check Cargo version
