@@ -104,20 +104,12 @@ jobs:
           path: nofuzz-tuner-frontend/build
   
   deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-
     steps:
-      # Download the artifact created by the build job
-      - uses: actions/download-pages-artifact@v3
-        with:
-          path: nofuzz-tuner-frontend/build
-
-      # Deploy to GitHub Pages
-      - name: Deploy to Pages
-        uses: actions/deploy-pages@v3
-        with:
-          path: nofuzz-tuner-frontend/build
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
