@@ -70,7 +70,7 @@ jobs:
 
       # Upload the build folder as an artifact for the next job
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           path: nofuzz-tuner-frontend/build
   
