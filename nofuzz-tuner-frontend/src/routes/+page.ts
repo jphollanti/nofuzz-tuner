@@ -1,6 +1,6 @@
 // since there's no dynamic data here, we can prerender
 // it so that it gets served as a static asset in production
-export const prerender = false;
+export const prerender = true;
 export const ssr = false; // Disable server-side rendering for this route
 import init, { YinPitchDetector } from '../lib/no_fuzz_tuner/pkg/nofuzz_tuner_lib.js';
 
