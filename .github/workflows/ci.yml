@@ -101,7 +101,11 @@ jobs:
     steps:
       # Download the artifact created by the build job
       - uses: actions/download-pages-artifact@v3
+        with:
+          path: nofuzz-tuner-frontend/build
 
       # Deploy to GitHub Pages
       - name: Deploy to Pages
         uses: actions/deploy-pages@v3
+        with:
+          path: nofuzz-tuner-frontend/build
