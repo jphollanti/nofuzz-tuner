@@ -22,7 +22,7 @@ jobs:
           
       # Install the latest Rust stable toolchain + components
       - name: Set up Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
           components: rustfmt, clippy
