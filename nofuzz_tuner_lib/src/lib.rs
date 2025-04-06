@@ -3,24 +3,28 @@
 use pitch_detection::detector::mcleod::McLeodDetector;
 use pitch_detection::detector::PitchDetector;
 
-use audioviz::spectrum::{config::{StreamConfig as StreamConfig2, ProcessorConfig, VolumeNormalisation, PositionNormalisation, Interpolation}, stream::Stream};
+use audioviz::spectrum::{
+    config::{
+        Interpolation, PositionNormalisation, ProcessorConfig, StreamConfig as StreamConfig2,
+        VolumeNormalisation,
+    },
+    stream::Stream,
+};
 
-use std::collections::HashMap;
 use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use wasm_bindgen::prelude::*;
-use js_sys::Float64Array;
 use console_error_panic_hook;
-
+use js_sys::Float64Array;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn start() {
     // Set the panic hook for better error messages in the browser console
     console_error_panic_hook::set_once();
 }
-
 
 #[wasm_bindgen]
 pub fn greet(name: &str) -> String {
@@ -50,11 +54,11 @@ pub struct Config {
     pub freq_min: f64,
     pub freq_max: f64,
     // Mcleod parameters
-    pub power_threshold: f64, 
-    pub clarity_threshold: f64
+    pub power_threshold: f64,
+    pub clarity_threshold: f64,
 }
 
-pub trait PitchFindTrait: Send + Sync  {
+pub trait PitchFindTrait: Send + Sync {
     fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64>;
 }
 
@@ -66,7 +70,12 @@ pub struct YinPitchDetector {
 #[wasm_bindgen]
 impl YinPitchDetector {
     #[wasm_bindgen(constructor)]
-    pub fn new(threshold: f64, freq_min: f64, freq_max: f64, sample_rate: usize) -> YinPitchDetector {
+    pub fn new(
+        threshold: f64,
+        freq_min: f64,
+        freq_max: f64,
+        sample_rate: usize,
+    ) -> YinPitchDetector {
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
         YinPitchDetector { yin: yin }
     }
@@ -75,7 +84,7 @@ impl YinPitchDetector {
     pub fn maybe_find_pitch_js(&mut self, data: &Float64Array) -> Option<f64> {
         // Convert the Float64Array from JavaScript to a Rust slice
         let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
-        
+
         self.maybe_find_pitch(&data_vec)
     }
 }
@@ -99,19 +108,36 @@ pub struct McleodPitchDetector {
     padding: usize,
 }
 impl McleodPitchDetector {
-    pub fn new(size: usize, padding: usize, sample_rate: usize, power_threshold: f64, clarity_threshold: f64) -> McleodPitchDetector {
-        McleodPitchDetector { sample_rate, power_threshold, clarity_threshold, size, padding }
+    pub fn new(
+        size: usize,
+        padding: usize,
+        sample_rate: usize,
+        power_threshold: f64,
+        clarity_threshold: f64,
+    ) -> McleodPitchDetector {
+        McleodPitchDetector {
+            sample_rate,
+            power_threshold,
+            clarity_threshold,
+            size,
+            padding,
+        }
     }
 }
 
 impl PitchFindTrait for McleodPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
         let mut mcleod = McLeodDetector::new(self.size, self.padding);
-        let pitch = mcleod.get_pitch(data, self.sample_rate, self.power_threshold, self.clarity_threshold);
+        let pitch = mcleod.get_pitch(
+            data,
+            self.sample_rate,
+            self.power_threshold,
+            self.clarity_threshold,
+        );
         if pitch.is_some() {
             return Some(pitch.unwrap().frequency);
         }
-        return None
+        return None;
     }
 }
 
@@ -139,7 +165,7 @@ impl FftPitchDetector {
             gravity: Some(5.0),
         });
 
-        FftPitchDetector {stream}
+        FftPitchDetector { stream }
     }
 }
 
@@ -149,9 +175,9 @@ impl PitchFindTrait for FftPitchDetector {
 
         self.stream.push_data(vec);
         self.stream.update();
-        
-        let mut hvol :f32 = 0.0;
-        let mut highest :f32 = 0.0;
+
+        let mut hvol: f32 = 0.0;
+        let mut highest: f32 = 0.0;
 
         let frequencies = self.stream.get_frequencies();
         for (_, frequency) in frequencies.iter().enumerate() {
