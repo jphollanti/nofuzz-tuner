@@ -1,4 +1,4 @@
-name: Rust WASM CI/CD
+name: Build & Deploy
 
 on:
   push:
