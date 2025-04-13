@@ -1,5 +1,5 @@
 
-![CI/CD](https://github.com/jphollanti/nofuzz-tuner/actions/workflows/ci.yml/badge.svg)
+![Build & Deploy](https://github.com/jphollanti/nofuzz-tuner/actions/workflows/ci.yml/badge.svg)
 
 # nofuzz_tuner
 
