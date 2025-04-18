@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { env as PUBLIC } from '$env/dynamic/public';
 	import { fade } from 'svelte/transition';
+	import workletURL from '$lib/audio/pitch-worklet.js?url'; 
 	
 	const buildVersion =
 		PUBLIC.PUBLIC_BUILD_VERSION
@@ -257,11 +258,10 @@
 		YinPitchDetector = pkg.YinPitchDetector;
 	}
 
-	async function run() {
+	async function run() {		
 		audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-		await audioContext.audioWorklet.addModule(
-			new URL('./pitch-worklet.ts', import.meta.url).href
-		);
+		await audioContext.audioWorklet.addModule(workletURL);
+
 		const sr = audioContext.sampleRate; 
 		// These values should come from config.yaml
 		// or similar, but for now we hardcode them
