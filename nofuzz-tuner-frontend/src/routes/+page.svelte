@@ -1,14 +1,16 @@
 <script lang="ts">
    	import { onMount } from 'svelte';
-    import { browser } from '$app/environment';
+	import { browser } from '$app/environment';
 
-    let YinPitchDetector: any;
+	let YinPitchDetector: any;
 
 	let canvas: HTMLCanvasElement | null = null;
 	let ctx: CanvasRenderingContext2D | null = null;
+
 	let audioContext: AudioContext | null = null;
-	let scriptProcessor: ScriptProcessorNode | null = null;
+	let workletNode: AudioWorkletNode | null = null;
 	let input: MediaStreamAudioSourceNode | null = null;
+
 	let detectedString: string | null = 'NAN';
 
 	interface GuitarString {
@@ -31,15 +33,6 @@
 			max: s.frequency + 10
 		};
 	});
-
-    async function loadWasm() {
-        if (browser) {
-			console.log('loading wasm');
-            const module = await import('../lib/no_fuzz_tuner/pkg/nofuzz_tuner_lib.js');
-            await module.default();
-            YinPitchDetector = module.YinPitchDetector;
-        }
-    }
 
 	function find_string_and_distance(pitch: number) {
 		const strings = [
@@ -66,80 +59,6 @@
 
 		return { frequency, distance: minDistance, string };
 	}
-
-	async function run() {
-		//await init();
-
-		const detector = new YinPitchDetector(0.1, 60.0, 500.0, 44100);
-
-		audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-		scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-		input = audioContext.createMediaStreamSource(stream);
-		input.connect(scriptProcessor);
-		scriptProcessor.connect(audioContext.destination);
-
-		scriptProcessor.onaudioprocess = function(event) {
-			const inputBuffer = event.inputBuffer.getChannelData(0);
-			const audioData = new Float64Array(inputBuffer);
-			const pitch = detector.maybe_find_pitch_js(audioData);
-			if (pitch) {
-				const sd = find_string_and_distance(pitch);
-				if (detectedString !== sd.string) {
-					detectedString = sd.string;
-				}
-				resetCanvas();
-				drawScale(detectedString);
-				drawIndicator(detectedString, pitch);
-			}
-		};
-	}
-	
-    onMount(() => {
-        loadWasm();
-
-		const startButton = document.getElementById('start') as HTMLButtonElement;
-		const stopButton = document.getElementById('stop') as HTMLButtonElement;
-		if (stopButton) {
-			stopButton.disabled = true;
-		}
-
-		startButton.onclick = async function() {
-			startButton.disabled = true;
-			stopButton.disabled = false;
-			await run();
-		};
-
-		stopButton.onclick = function() {
-			startButton.disabled = false;
-			stopButton.disabled = true;
-			if (scriptProcessor && input && audioContext) {
-				scriptProcessor.disconnect();
-				input.disconnect();
-				audioContext.close();
-			}
-		};
-
-        canvas = document.getElementById('linearScale') as HTMLCanvasElement | null;
-		if (!canvas) {
-			console.error('Canvas element not found');
-			return;
-		}
-        ctx = canvas.getContext('2d');
-
-		// Resize the canvas when the window is loaded or resized
-		window.addEventListener('load', resizeCanvas);
-		window.addEventListener('resize', resizeCanvas);
-		resizeCanvas();
-    });
-
-    function detectPitch(audioData: Float64Array) {
-        if (YinPitchDetector) {
-            const detector = new YinPitchDetector(0.1, 60.0, 500.0, 44100);
-            return detector.maybe_find_pitch_js(audioData);
-        }
-        return null;
-    }
 
 	function resetCanvas() {
 		if (!ctx || !canvas) {
@@ -319,6 +238,100 @@
 		drawScale('E2');
 		drawIndicator('E2', 94.31);
 	}
+
+	async function loadWasm() {
+		if (!browser) return;
+		const pkg = await import('../lib/no_fuzz_tuner/pkg/nofuzz_tuner_lib.js');
+		await pkg.default();
+		YinPitchDetector = pkg.YinPitchDetector;
+	}
+
+	async function run() {
+		audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+		await audioContext.audioWorklet.addModule(
+			new URL('./pitch-worklet.ts', import.meta.url).href
+		);
+		const sr = audioContext.sampleRate; 
+		// These values should come from config.yaml
+		// or similar, but for now we hardcode them
+		const threshold = 0.1;
+        const freq_min = 60;
+        const freq_max = 500;
+		const detector = new YinPitchDetector(threshold, freq_min, freq_max, sr);
+
+		// microphone
+		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+		input = audioContext.createMediaStreamSource(stream);
+
+		// zero‑gain node so we don’t echo the mic to the speakers
+		const silence = audioContext.createGain();
+		silence.gain.value = 0;
+
+		workletNode = new AudioWorkletNode(audioContext, 'pitch-worklet', {
+			numberOfInputs: 1,
+			channelCount: 1
+		});
+
+		// wiring: mic → worklet → (silent) destination
+		input.connect(workletNode);
+		workletNode.connect(silence).connect(audioContext.destination);
+
+		const quantum = 128; // every AudioWorklet chunk
+		const BLOCK   = 4096; // Yin frame size
+		const buf     = new Float32Array(BLOCK);
+		let   write   = 0;
+		let   filled  = 0;
+
+		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
+		const chunk = data; // 128 samples
+		buf.set(chunk, write);
+		write = (write + quantum) % BLOCK;
+		filled += quantum;
+
+		if (filled >= BLOCK) {
+			filled = 0; // buffer ready
+			const pitch = detector.maybe_find_pitch_js(buf);
+			if (pitch) {
+					const sd = find_string_and_distance(pitch.freq);
+					if (detectedString !== sd.string) detectedString = sd.string;
+
+					resetCanvas();
+					drawScale(detectedString);
+					drawIndicator(detectedString, pitch.freq);
+				}
+			}
+		};
+	}
+
+	// onMount logic, resizeCanvas, draw helpers – unchanged
+	onMount(() => {
+		loadWasm();
+
+		const startButton = document.getElementById('start') as HTMLButtonElement;
+		const stopButton = document.getElementById('stop') as HTMLButtonElement;
+
+		stopButton.disabled = true;
+
+		startButton.onclick = async () => {
+			startButton.disabled = true;
+			stopButton.disabled = false;
+			await run();
+		};
+
+		stopButton.onclick = () => {
+			startButton.disabled = false;
+			stopButton.disabled = true;
+			workletNode?.disconnect();
+			input?.disconnect();
+			audioContext?.close();
+		};
+
+		canvas = document.getElementById('linearScale') as HTMLCanvasElement;
+		ctx = canvas?.getContext('2d') ?? null;
+		window.addEventListener('load', resizeCanvas);
+		window.addEventListener('resize', resizeCanvas);
+		resizeCanvas();
+	});
 </script>
 
 <svelte:head>

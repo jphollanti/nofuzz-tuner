@@ -25,11 +25,6 @@ pub fn start() {
     console_error_panic_hook::set_once();
 }
 
-#[wasm_bindgen]
-pub fn greet(name: &str) -> String {
-    format!("Hello, {}!", name)
-}
-
 // Guitar string frequencies cheat-sheet:
 lazy_static! {
     static ref GUITAR_STRINGS: HashMap<String, f64> = {
@@ -57,8 +52,22 @@ pub struct Config {
     pub clarity_threshold: f64,
 }
 
+#[wasm_bindgen]
+pub struct PitchResult {
+    pub freq: f64,
+    pub cents: f64,
+}
+
+#[wasm_bindgen]
+impl PitchResult {
+    #[wasm_bindgen(constructor)]
+    pub fn new(freq: f64, cents: f64) -> PitchResult {
+        PitchResult { freq, cents }
+    }
+}
+
 pub trait PitchFindTrait: Send + Sync {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64>;
+    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult>;
 }
 
 #[wasm_bindgen]
@@ -80,7 +89,7 @@ impl YinPitchDetector {
     }
 
     #[wasm_bindgen]
-    pub fn maybe_find_pitch_js(&mut self, data: &Float64Array) -> Option<f64> {
+    pub fn maybe_find_pitch_js(&mut self, data: &Float64Array) -> Option<PitchResult> {
         // Convert the Float64Array from JavaScript to a Rust slice
         let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
 
@@ -88,11 +97,25 @@ impl YinPitchDetector {
     }
 }
 
+fn find_closest_note(freq: f64) -> Option<(String, f64)> {
+    GUITAR_STRINGS
+        .iter()
+        .min_by(|a, b| {
+            let da = (freq - a.1).abs();
+            let db = (freq - b.1).abs();
+            da.partial_cmp(&db).unwrap()
+        })
+        .map(|(key, &value)| (key.to_string(), value))
+}
+
 impl PitchFindTrait for YinPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
+    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
         let freq = self.yin.estimate_freq(data);
         if freq != f64::INFINITY {
-            return Some(freq);
+            // Find closest note
+            let (_closest_note, closest_freq) = find_closest_note(freq).unwrap();
+            let cents = 1200.0 * (freq / closest_freq).log2();
+            return Some(PitchResult::new(freq, cents));
         }
         None
     }
@@ -125,7 +148,7 @@ impl McleodPitchDetector {
 }
 
 impl PitchFindTrait for McleodPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
+    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
         let mut mcleod = McLeodDetector::new(self.size, self.padding);
         let pitch = mcleod.get_pitch(
             data,
@@ -134,7 +157,10 @@ impl PitchFindTrait for McleodPitchDetector {
             self.clarity_threshold,
         );
         if let Some(p) = pitch {
-            return Some(p.frequency);
+            let (_closest_note, closest_freq) = find_closest_note(p.frequency).unwrap();
+            let cents = 1200.0 * (p.frequency / closest_freq).log2();
+            return Some(PitchResult::new(p.frequency, cents));
+            //return Some(p.frequency);
         }
         None
     }
@@ -175,7 +201,7 @@ impl FftPitchDetector {
 }
 
 impl PitchFindTrait for FftPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<f64> {
+    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
         let vec: Vec<f32> = data.iter().map(|&x| x as f32).collect();
 
         self.stream.push_data(vec);
@@ -193,7 +219,13 @@ impl PitchFindTrait for FftPitchDetector {
                 }
             }
         }
-        Some(highest as f64)
+        let freq = highest as f64;
+        if freq == 0.0 {
+            return None;
+        }
+        let (_closest_note, closest_freq) = find_closest_note(freq).unwrap();
+        let cents = 1200.0 * (freq / closest_freq).log2();
+        Some(PitchResult::new(freq, cents))
     }
 }
 

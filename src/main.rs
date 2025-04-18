@@ -13,7 +13,6 @@ use std::thread;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // read config.cfg
     let f = std::fs::File::open("config.yaml")?;
     let config: Config = serde_yaml::from_reader(f)?;
     println!("{:?}", config);
@@ -88,8 +87,9 @@ fn detect_from_input_stream<T: Sample>(
                 let f64_vals: Vec<f64> = data.iter().map(|x| x.to_f32() as f64).collect();
                 let freq = (*detector).maybe_find_pitch(&f64_vals);
                 if freq.is_some() {
-                    let s_and_f = find_string_and_distance(freq.unwrap());
-                    output(freq.unwrap(), s_and_f.0, s_and_f.1, s_and_f.2);
+                    let res = freq.unwrap();
+                    let s_and_f = find_string_and_distance(res.freq);
+                    output(res.freq, res.cents, s_and_f.0, s_and_f.1, s_and_f.2);
                 }
             },
             err_fn,
@@ -102,7 +102,7 @@ fn detect_from_input_stream<T: Sample>(
     }
 }
 
-fn output(freq: f64, string_freq: f64, distance: f64, string_key: String) {
+fn output(freq: f64, cents: f64, string_freq: f64, distance: f64, string_key: String) {
     let mut corr = "".to_string();
     if distance.abs() > 0.9 {
         let dir = if distance < 0.0 { ">" } else { "<" };
@@ -115,8 +115,8 @@ fn output(freq: f64, string_freq: f64, distance: f64, string_key: String) {
     stdout
         .write_all(
             format!(
-                "Detected frequency: {:.1} --- Closest to string {}:{} {}",
-                freq, string_key, string_freq, corr
+                "Detected frequency: {:.1}, cents: {:.2} --- Closest to string {}:{} {}",
+                freq, cents, string_key, string_freq, corr
             )
             .as_bytes(),
         )

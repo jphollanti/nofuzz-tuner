@@ -4,6 +4,9 @@ members = [
     "nofuzz_tuner_lib",     # The library crate
 ]
 
+[workspace.metadata]
+clippy-args = ["--all-targets", "--all-features", "-D", "warnings"]
+
 [package]
 name = "nofuzz_tuner"
 version = "0.1.0"
