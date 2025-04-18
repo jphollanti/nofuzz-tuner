@@ -1,0 +1,27 @@
+{
+    "name": "No-Fuzz Guitar Tuner",
+    "short_name": "NoFuzzTuner",
+    "description": "Fast, browser-based guitar tuner. No ads, 100% free.",
+    "id": "/",
+    "start_url": "/?utm_source=homescreen",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "theme_color": "#121212",
+    "background_color": "#121212",
+  
+    "icons": [
+      {
+        "src": "/icons/icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png",
+        "purpose": "any"
+      },
+      {
+        "src": "/icons/icon-512.png",
+        "sizes": "512x512",
+        "type": "image/png",
+        "purpose": "any"
+      }
+    ]
+  }
