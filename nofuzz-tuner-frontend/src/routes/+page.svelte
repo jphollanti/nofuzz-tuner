@@ -1,4 +1,15 @@
 <script lang="ts">
+	import { env as PUBLIC } from '$env/dynamic/public';
+	import { fade } from 'svelte/transition';
+	
+	const buildVersion =
+		PUBLIC.PUBLIC_BUILD_VERSION
+		?? `dev-${new Date().toISOString()}`;
+	
+
+	/* Tooltip visibility */
+	let open = false;
+
    	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 
@@ -351,6 +362,27 @@
     <canvas id="linearScale"></canvas>
 </section>
 
+<button
+	class="info-btn"
+	on:mouseenter={() => (open = true)}
+	on:mouseleave={() => (open = false)}
+	on:focusin={() => (open = true)}
+	on:focusout={() => (open = false)}
+	aria-describedby="build-id">
+	<!--  tiny info icon (Heroicons “information-circle”)  -->
+	<svg class="icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+		<path fill-rule="evenodd"
+			d="M18 10A8 8 0 11 2 10a8 8 0 0116 0zm-8-3a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zM9 8.75a1 1 0 012 0v6.5a1 1 0 11-2 0v-6.5z"
+			clip-rule="evenodd" />
+	</svg>
+
+	{#if open}
+		<div class="bubble" id="build-id" transition:fade>
+			Build&nbsp;{buildVersion}
+		</div>
+	{/if}
+</button>
+
 <style>
 	canvas {
 		display: block; /* Removes unwanted scrollbars */
@@ -410,5 +442,53 @@
 	h1 {
 		width: 100%;
 	}
+	
+	/* anchor button ----------------------------------- */
+	.info-btn {
+		position: fixed;
+		right: 1rem;
+		bottom: 1rem;
+		z-index: 9999;
 
+		/* strip native button chrome */
+		background: transparent;
+		border: none;
+		padding: 0;
+
+		/* shrink to icon size */
+		display: inline-flex;
+		align-items: center;
+		justify-content: right;
+		cursor: help;          /* little ❓ cursor   */
+	}
+
+	/* optional focus ring for a11y */
+	.info-btn:focus-visible {
+		outline: 2px solid var(--accent-500, #888);
+		outline-offset: 2px;
+	}
+
+	/* icon --------------------------------------------- */
+	.icon {
+		width: 1.25rem;
+		height: 1.25rem;
+		color: var(--accent-500, #888);
+		pointer-events: none;  /* keep tooltip trigger on button */
+	}
+
+	/* tooltip bubble ----------------------------------- */
+	.bubble {
+		position: absolute;
+		bottom: 150%;
+		right: 0;
+
+		background: var(--tooltip-bg, #222);
+		color: #fff;
+		padding: 0.35rem 0.6rem;
+		font: 0.72rem/1 monospace;
+		border-radius: 0.3rem;
+		white-space: nowrap;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		pointer-events: none;
+	}
 </style>

@@ -13,6 +13,10 @@ jobs:
     steps:
       # Check out the repository
       - uses: actions/checkout@v3
+
+      - name: Generate BUILD_VERSION
+        run: |
+          echo "BUILD_VERSION=$(date -u +'%Y-%m-%d').${{ github.run_number }}+${GITHUB_SHA::7}" >> $GITHUB_ENV
       
       # Invalidate cache for wasm-pack every 24 hours
       - name: Set cache date
@@ -100,7 +104,10 @@ jobs:
 
       - name: Build frontend
         working-directory: nofuzz-tuner-frontend
-        run: npm run build
+        run: |
+          echo "PUBLIC_BUILD_VERSION=$BUILD_VERSION" >> .env
+          npm ci
+          npm run build
 
       # Upload the build folder as an artifact for the next job
       - name: Upload artifact for Pages

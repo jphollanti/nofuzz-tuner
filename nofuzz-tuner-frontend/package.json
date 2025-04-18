@@ -2,6 +2,7 @@
 	"name": "nofuzz-tuner",
 	"version": "0.0.1",
 	"scripts": {
+		"predev": "node scripts/gen-build-tag.js",
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
