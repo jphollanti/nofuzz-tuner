@@ -1,12 +1,12 @@
 <svelte:head>
 	<!-- Primary SEO -->
-	<title>Online Guitar Tuner - No-Fuzz, Browser-Based &amp; Free</title>
+	<title>Guitar Tuner - Browser-Based &amp; Free - No-Fuzz</title>
 	<meta name="description" content="Tune your guitar fast with browser-based tuner. No ads, 100% free." />
 	<link rel="canonical" href="https://www.nofuzz.app/" />
 
 	<!-- Open Graph -->
 	<meta property="og:type"        content="website" />
-	<meta property="og:title"       content="Online Guitar Tuner - No-Fuzz, Browser-Based &amp; Free" />
+	<meta property="og:title"       content="Guitar Tuner - Browser-Based &amp; Free - No-Fuzz" />
 	<meta property="og:description" content="Tune your guitar accurately with browser-based tuner. No ads." />
 	<meta property="og:url"         content="https://www.nofuzz.app/" />
 	<meta property="og:image"       content="https://www.nofuzz.app/cover.png" />
@@ -14,8 +14,8 @@
 	<!-- Twitter Card -->
 	<meta name="twitter:card"        content="summary_large_image" />
 	<meta name="twitter:site"        content="@NoFuzzTuner" />
-	<meta name="twitter:title"       content="Online Guitar Tuner - No-Fuzz, Browser-Based &amp; Free" />
-	<meta name="twitter:description" content="Fast guitar tuner." />
+	<meta name="twitter:title"       content="Guitar Tuner - Browser-Based &amp; Free - No-Fuzz" />
+	<meta name="twitter:description" content="No-Fuzz guitar tuner." />
 	<meta name="twitter:image"       content="https://www.nofuzz.app/cover.png" />
 
 	<!-- PWA / install prompts -->
@@ -33,6 +33,8 @@
 	  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
 	  "featureList": [
 	    "High-accuracy YIN pitch detection",
+		"Standard tuning",
+		"Drop D tuning",
 	    "No ads or tracking"
 	  ],
 	  "screenshot": "https://www.nofuzz.app/cover.png",
