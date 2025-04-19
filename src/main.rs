@@ -3,7 +3,6 @@ use cpal::*;
 use crossterm::{cursor, terminal, ExecutableCommand, QueueableCommand};
 use std::io::{stdout, Write};
 
-use nofuzz_tuner_lib::find_string_and_distance;
 use nofuzz_tuner_lib::Config;
 use nofuzz_tuner_lib::FftPitchDetector;
 use nofuzz_tuner_lib::McleodPitchDetector;
@@ -78,6 +77,9 @@ fn detect_from_input_stream<T: Sample>(
     config: &StreamConfig,
     mut detector: Box<dyn PitchFindTrait>,
 ) {
+    // const TUNING: &str = "standard-e";
+    // const TUNING: &str = "flat-e";
+    const TUNING: &str = "drop-d";
     let err_fn = |err| println!("{}", err);
 
     let stream = device
@@ -85,11 +87,11 @@ fn detect_from_input_stream<T: Sample>(
             config,
             move |data: &[T], _| {
                 let f64_vals: Vec<f64> = data.iter().map(|x| x.to_f32() as f64).collect();
-                let freq = (*detector).maybe_find_pitch(&f64_vals);
+                let freq = (*detector).maybe_find_pitch(&f64_vals, TUNING);
                 if freq.is_some() {
                     let res = freq.unwrap();
-                    let s_and_f = find_string_and_distance(res.freq);
-                    output(res.freq, res.cents, s_and_f.0, s_and_f.1, s_and_f.2);
+                    let tt = res.tuning_to();
+                    output(res.freq(), tt.cents(), tt.freq(), tt.distance(), tt.note());
                 }
             },
             err_fn,

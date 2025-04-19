@@ -11,6 +11,16 @@
 	/* Tooltip visibility */
 	let open = false;
 
+	/* Tuning selections */
+	const tunings = [
+		{ id: 'standard-e', label: 'Standard E' },
+		{ id: 'flat-e',     label: 'Eb / Half‑step Down' },
+		{ id: 'drop-d',     label: 'Drop D' },
+	];
+
+	export let tuning: string = tunings[0].id;
+
+	
    	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 
@@ -22,8 +32,6 @@
 	let audioContext: AudioContext | null = null;
 	let workletNode: AudioWorkletNode | null = null;
 	let input: MediaStreamAudioSourceNode | null = null;
-
-	let detectedString: string | null = 'NAN';
 
 	interface GuitarString {
 		name: string;
@@ -38,40 +46,7 @@
 		{ name: 'B3', frequency: 246.94 },
 		{ name: 'E4', frequency: 329.63 }
 	];
-	// Add range to strings
-	strings.forEach((s, i) => {
-		s.range = {
-			min: s.frequency - 10,
-			max: s.frequency + 10
-		};
-	});
-
-	function find_string_and_distance(pitch: number) {
-		const strings = [
-			{ name: 'E2', frequency: 82.41 },
-			{ name: 'A2', frequency: 110.00 },
-			{ name: 'D3', frequency: 146.83 },
-			{ name: 'G3', frequency: 196.00 },
-			{ name: 'B3', frequency: 246.94 },
-			{ name: 'E4', frequency: 329.63 }
-		];
-
-		let minDistance = Infinity;
-		let string = null;
-		let frequency = null;
-
-		for (const s of strings) {
-			const distance = Math.abs(pitch - s.frequency);
-			if (distance < minDistance) {
-				minDistance = distance;
-				string = s.name;
-				frequency = s.frequency;
-			}
-		}
-
-		return { frequency, distance: minDistance, string };
-	}
-
+	
 	function resetCanvas() {
 		if (!ctx || !canvas) {
 			console.error('Canvas or context not found');
@@ -80,7 +55,7 @@
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 	}
 
-	function drawScale(scaleString:string | null) {
+	function drawScale(tuningTo:any | null) {
 		if (!canvas || !ctx) {
 			console.error('Canvas or context not found');
 			return;
@@ -106,9 +81,8 @@
 		ctx.lineTo(centerX, drawScaleYMax); // End below the main line
 		ctx.stroke();
 
-		const label = "Tuning to string: " + scaleString;
-		const targetString = strings.find(s => s.name === scaleString);
-		const label2 = targetString ? `${targetString.frequency} Hz` : "N/A";
+		const label = "Tuning to string: " + tuningTo.note;
+		const label2 = `${tuningTo.freq} Hz`;
 
 		ctx.font = '12px Arial';
 		ctx.fillStyle = 'white';
@@ -118,7 +92,7 @@
 	}
 	
 	// Function to draw the indicator at a specific value
-	function drawIndicator(scaleString:string | null, value:number) {
+	function drawIndicator(tuningTo:any | null, value:number) {
 		if (!canvas || !ctx) {
 			console.error('Canvas or context not found');
 			return;
@@ -133,28 +107,25 @@
 		const scaleY = height / 2; // Vertical position of the scale
 		const centerX = (endX - startX) / 2;
 
-		// Calculate the X position of the indicator based on the value
-		let string = strings.find(s => s.name === scaleString);
-		if (!string || !string.range) return;
-
-
 		let indicatorX = centerX;
+		let rangeMin = tuningTo.freq - 10;
+		let rangeMax = tuningTo.freq + 10;
 		// map value to string.range and find x position
-		if (value < string.frequency) {
-			let xx = (value - string.range.min) / (string.frequency - string.range.min);
+		if (value < tuningTo.freq) {
+			let xx = (value - rangeMin) / (tuningTo.freq - rangeMin);
 			if (xx < 0) {
 				xx = 0;
 			}
 			indicatorX = centerX * xx;
-		} else if (value > string.frequency) {
-			let xx = (value - string.frequency) / (string.range.max - string.frequency);
+		} else if (value > tuningTo.freq) {
+			let xx = (value - tuningTo.freq) / (rangeMax - tuningTo.freq);
 			if (xx > 1) {
 				xx = 1;
 			}
 			indicatorX = centerX + centerX * xx;
 		}
 
-		const dist = Math.abs(value - string.frequency);
+		const dist = Math.abs(value - tuningTo.freq);
 		let color = '#4CAF50';
 		if (dist > 5) {
 			color = '#FF4C4C';
@@ -169,7 +140,7 @@
 			let by = scaleY
 			let cx = indicatorX
 			let cy = scaleY + (height * .03)
-			if (value > string.frequency) {
+			if (value > tuningTo.freq) {
 				bx = indicatorX - (height * .03)
 			}
 
@@ -187,7 +158,7 @@
 				by = scaleY
 				cx = indicatorX + (height * .015)
 				cy = scaleY + (height * .03)
-				if (value > string.frequency) {
+				if (value > tuningTo.freq) {
 					ax = indicatorX - (height * .015)
 					bx = indicatorX - (height * .03) - (height * .015)
 					cx = indicatorX - (height * .015)
@@ -247,8 +218,12 @@
 		//context.fillRect(0, 0, canvas.width, canvas.height);
 
 		// testing 
-		drawScale('E2');
-		drawIndicator('E2', 94.31);
+		let tuningTo = {
+			note: 'E2',
+			freq: 82.41,
+		}
+		drawScale(tuningTo);
+		drawIndicator(tuningTo, 94.31);
 	}
 
 	async function loadWasm() {
@@ -294,21 +269,19 @@
 		let   filled  = 0;
 
 		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
-		const chunk = data; // 128 samples
-		buf.set(chunk, write);
-		write = (write + quantum) % BLOCK;
-		filled += quantum;
+			const chunk = data; // 128 samples
+			buf.set(chunk, write);
+			write = (write + quantum) % BLOCK;
+			filled += quantum;
 
-		if (filled >= BLOCK) {
-			filled = 0; // buffer ready
-			const pitch = detector.maybe_find_pitch_js(buf);
-			if (pitch) {
-					const sd = find_string_and_distance(pitch.freq);
-					if (detectedString !== sd.string) detectedString = sd.string;
-
+			if (filled >= BLOCK) {
+				filled = 0; // buffer ready
+				const pitch = detector.maybe_find_pitch_js(buf, tuning);
+				if (pitch) {
+					const tuningTo = pitch.tuningTo;
 					resetCanvas();
-					drawScale(detectedString);
-					drawIndicator(detectedString, pitch.freq);
+					drawScale(tuningTo);
+					drawIndicator(tuningTo, pitch.freq);
 				}
 			}
 		};
@@ -357,7 +330,19 @@
         <div id="controls">
             <button id="start">Start</button>
             <button id="stop">Stop</button>
-        </div>
+
+			<label class="tuning-label">
+				<p>&nbsp;</p>
+				Choose tuning
+				<select
+					class="tuning-select"
+					bind:value={tuning}>
+					{#each tunings as t}
+						<option value={t.id}>{t.label}</option>
+					{/each}
+				</select>
+			</label>
+		</div>
     </div>
     <canvas id="linearScale"></canvas>
 </section>
@@ -490,5 +475,40 @@
 		white-space: nowrap;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 		pointer-events: none;
+	}
+
+	/* tuning select */
+	/* ---------- Component styles ---------- */
+	.tuning-label {
+		display: block;
+		color: var(--fg);
+		font-size: 0.9rem;
+	}
+
+	.tuning-select {
+		margin-top: 0.25rem;
+		width: 100%;
+		font-size: 1rem;
+		padding: 0.45rem 0.6rem;
+		color: var(--fg);
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 0.375rem;
+		transition: border 0.2s, box-shadow 0.2s;
+	}
+
+	.tuning-select:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent);
+	}
+
+	/* optional hover & disabled tweaks */
+	.tuning-select:hover {
+		border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+	}
+	.tuning-select:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 </style>

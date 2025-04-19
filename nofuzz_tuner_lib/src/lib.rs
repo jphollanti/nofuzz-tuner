@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use js_sys::Float64Array;
+use std::cmp::Ordering;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -27,15 +28,40 @@ pub fn start() {
 
 // Guitar string frequencies cheat-sheet:
 lazy_static! {
-    static ref GUITAR_STRINGS: HashMap<String, f64> = {
-        let mut m = HashMap::new();
-        m.insert("E2".to_string(), 82.41);
-        m.insert("A2".to_string(), 110.00);
-        m.insert("D3".to_string(), 146.83);
-        m.insert("G3".to_string(), 196.00);
-        m.insert("B3".to_string(), 246.94);
-        m.insert("E4".to_string(), 329.63);
-        m
+    pub static ref TUNINGS: HashMap<&'static str, HashMap<&'static str, f64>> = {
+        let mut tunings = HashMap::new();
+
+        // ── 1. Standard E ─────────────────────────────
+        tunings.insert("standard-e", HashMap::from([
+            ("E2", 82.41),
+            ("A2", 110.00),
+            ("D3", 146.83),
+            ("G3", 196.00),
+            ("B3", 246.94),
+            ("E4", 329.63),
+        ]));
+
+        // ── 2. Standard Eb / “Half‑step‑down” ─────────
+        tunings.insert("flat-e", HashMap::from([
+            ("Eb2", 77.78),
+            ("Ab2", 103.83),
+            ("Db3", 138.59),
+            ("Gb3", 185.00),
+            ("Bb3", 233.08),
+            ("Eb4", 311.13),
+        ]));
+
+        // ── 3. Drop‑D ────────────────────────────────
+        tunings.insert("drop-d", HashMap::from([
+            ("D2", 73.42),
+            ("A2", 110.00),
+            ("D3", 146.83),
+            ("G3", 196.00),
+            ("B3", 246.94),
+            ("E4", 329.63),
+        ]));
+
+        tunings
     };
 }
 
@@ -53,21 +79,86 @@ pub struct Config {
 }
 
 #[wasm_bindgen]
+#[derive(Clone)]
+pub struct TuningTo {
+    tuning: String,
+    note: String,
+    freq: f64,
+    distance: f64,
+    cents: f64,
+}
+
+#[wasm_bindgen]
+impl TuningTo {
+    #[wasm_bindgen(constructor)]
+    pub fn new(tuning: String, note: String, freq: f64, distance: f64, cents: f64) -> TuningTo {
+        Self {
+            tuning,
+            note,
+            freq,
+            distance,
+            cents,
+        }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn tuning(&self) -> String {
+        self.tuning.clone()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn note(&self) -> String {
+        self.note.clone()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn freq(&self) -> f64 {
+        self.freq
+    }
+    #[wasm_bindgen(getter)]
+    pub fn distance(&self) -> f64 {
+        self.distance
+    }
+    #[wasm_bindgen(getter)]
+    pub fn cents(&self) -> f64 {
+        self.cents
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Clone)]
 pub struct PitchResult {
-    pub freq: f64,
-    pub cents: f64,
+    freq: f64,
+    tuning_to: TuningTo,
 }
 
 #[wasm_bindgen]
 impl PitchResult {
     #[wasm_bindgen(constructor)]
-    pub fn new(freq: f64, cents: f64) -> PitchResult {
-        PitchResult { freq, cents }
+    pub fn new(
+        freq: f64,
+        tuning: String,
+        closest_note: String,
+        closest_freq: f64,
+        distance: f64,
+        cents: f64,
+    ) -> PitchResult {
+        let tuning_to = TuningTo::new(tuning, closest_note, closest_freq, distance, cents);
+        Self { freq, tuning_to }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn freq(&self) -> f64 {
+        self.freq
+    }
+
+    // custom JS property name: result.tuningTo
+    #[wasm_bindgen(getter = tuningTo)]
+    pub fn tuning_to(&self) -> TuningTo {
+        self.tuning_to.clone()
     }
 }
 
 pub trait PitchFindTrait: Send + Sync {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult>;
+    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult>;
 }
 
 #[wasm_bindgen]
@@ -89,33 +180,52 @@ impl YinPitchDetector {
     }
 
     #[wasm_bindgen]
-    pub fn maybe_find_pitch_js(&mut self, data: &Float64Array) -> Option<PitchResult> {
+    pub fn maybe_find_pitch_js(
+        &mut self,
+        data: &Float64Array,
+        tuning: &str,
+    ) -> Option<PitchResult> {
         // Convert the Float64Array from JavaScript to a Rust slice
         let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
 
-        self.maybe_find_pitch(&data_vec)
+        self.maybe_find_pitch(&data_vec, tuning)
     }
 }
 
-fn find_closest_note(freq: f64) -> Option<(String, f64)> {
-    GUITAR_STRINGS
-        .iter()
-        .min_by(|a, b| {
-            let da = (freq - a.1).abs();
-            let db = (freq - b.1).abs();
-            da.partial_cmp(&db).unwrap()
-        })
-        .map(|(key, &value)| (key.to_string(), value))
+fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
+    let strings = TUNINGS.get(tuning)?;
+
+    let (note, target_freq) = strings.iter().min_by(|a, b| {
+        let da = (a.1 - freq).abs();
+        let db = (b.1 - freq).abs();
+        // unwrap_or(Ordering::Equal), because in the context of min_by,
+        // prevents a stray NaN (which YIN can produce if something weird
+        // slips through)
+        da.partial_cmp(&db).unwrap_or(Ordering::Equal)
+    })?;
+
+    Some((
+        (*note).to_string(),
+        *target_freq,
+        (*target_freq - freq).abs(),
+    ))
 }
 
 impl PitchFindTrait for YinPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
+    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let freq = self.yin.estimate_freq(data);
         if freq != f64::INFINITY {
             // Find closest note
-            let (_closest_note, closest_freq) = find_closest_note(freq).unwrap();
+            let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
             let cents = 1200.0 * (freq / closest_freq).log2();
-            return Some(PitchResult::new(freq, cents));
+            return Some(PitchResult::new(
+                freq,
+                tuning.to_string(),
+                closest_note,
+                closest_freq,
+                distance,
+                cents,
+            ));
         }
         None
     }
@@ -148,7 +258,7 @@ impl McleodPitchDetector {
 }
 
 impl PitchFindTrait for McleodPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
+    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let mut mcleod = McLeodDetector::new(self.size, self.padding);
         let pitch = mcleod.get_pitch(
             data,
@@ -157,9 +267,17 @@ impl PitchFindTrait for McleodPitchDetector {
             self.clarity_threshold,
         );
         if let Some(p) = pitch {
-            let (_closest_note, closest_freq) = find_closest_note(p.frequency).unwrap();
+            let (closest_note, closest_freq, distance) =
+                find_closest_note(p.frequency, tuning).unwrap();
             let cents = 1200.0 * (p.frequency / closest_freq).log2();
-            return Some(PitchResult::new(p.frequency, cents));
+            return Some(PitchResult::new(
+                p.frequency,
+                tuning.to_string(),
+                closest_note,
+                closest_freq,
+                distance,
+                cents,
+            ));
             //return Some(p.frequency);
         }
         None
@@ -201,7 +319,7 @@ impl FftPitchDetector {
 }
 
 impl PitchFindTrait for FftPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64]) -> Option<PitchResult> {
+    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let vec: Vec<f32> = data.iter().map(|&x| x as f32).collect();
 
         self.stream.push_data(vec);
@@ -223,23 +341,15 @@ impl PitchFindTrait for FftPitchDetector {
         if freq == 0.0 {
             return None;
         }
-        let (_closest_note, closest_freq) = find_closest_note(freq).unwrap();
+        let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
         let cents = 1200.0 * (freq / closest_freq).log2();
-        Some(PitchResult::new(freq, cents))
+        Some(PitchResult::new(
+            freq,
+            tuning.to_string(),
+            closest_note,
+            closest_freq,
+            distance,
+            cents,
+        ))
     }
-}
-
-pub fn find_string_and_distance(freq: f64) -> (f64, f64, String) {
-    let mut min_distance = f64::INFINITY;
-    let mut string_freq = 0.0;
-    let mut string_key = "".to_string();
-    for (key, sf) in GUITAR_STRINGS.iter() {
-        let distance = freq - sf;
-        if distance.abs() < min_distance.abs() {
-            min_distance = distance;
-            string_freq = *sf;
-            string_key = key.to_string();
-        }
-    }
-    (string_freq, min_distance, string_key)
 }
