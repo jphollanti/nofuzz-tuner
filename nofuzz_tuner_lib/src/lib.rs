@@ -527,7 +527,7 @@ fn get_wav_sample_rate(path: &str) -> u32 {
 #[test]
 fn test_basic_yin_standard_e2() {
     const FILE: &str = "test_assets/82.wav";
-    let sr: u32 = get_wav_sample_rate(FILE);;
+    let sr: u32 = get_wav_sample_rate(FILE);
     let samples = read_wav_as_f32(FILE);
     let mut yin = YinPitchDetector::new(
         0.1,   // threshold
@@ -589,7 +589,7 @@ fn test_recorded_yin_standard_e2() {
         500.0, // max frequency
         sr as usize,
     );
-    
+
     let frame_size = 4096;
     let offset = 0; // You can slide this later
 
