@@ -13,9 +13,9 @@
 
 	/* Tuning selections */
 	const tunings = [
-		{ id: 'standard-e', label: 'Standard E' },
-		{ id: 'flat-e',     label: 'Eb / Half‑step Down' },
-		{ id: 'drop-d',     label: 'Drop D' },
+		{ id: 'standard-e', label: 'Standard E' },
+		{ id: 'flat-e',     label: 'Eb / Half-step Down' },
+		{ id: 'drop-d',     label: 'Drop D' },
 	];
 
 	export let tuning: string = tunings[0].id;
