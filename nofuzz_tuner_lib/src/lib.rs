@@ -407,7 +407,12 @@ pub fn read_m4a_as_f32(path: &str) -> Vec<f32> {
     let hint = Hint::new(); // You can add `.with_extension("m4a")` if needed
 
     let probed = get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .expect("Failed to probe format");
 
     let mut format = probed.format;
@@ -582,12 +587,7 @@ fn test_recorded_yin_standard_e2() {
 }
 
 #[cfg(test)]
-fn find_note_from_samples(
-    samples: &[f32],
-    sample_rate: usize,
-    tuning: &str,
-    note: &str,
-) {
+fn find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
     let mut yin = YinPitchDetector::new(
         0.1,   // threshold
         60.0,  // min frequency
@@ -607,7 +607,11 @@ fn find_note_from_samples(
         let pitch = yin.maybe_find_pitch(&frame_f64, tuning);
         if let Some(res) = pitch {
             picked_up_something = true;
-            println!("Time {:.2}s - Pitch: {:.2} Hz", i as f32 / sample_rate as f32, res.freq());
+            println!(
+                "Time {:.2}s - Pitch: {:.2} Hz",
+                i as f32 / sample_rate as f32,
+                res.freq()
+            );
             assert!(res.tuning_to().note() == note);
         }
     }
