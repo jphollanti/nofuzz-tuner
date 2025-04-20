@@ -586,6 +586,42 @@ fn test_recorded_yin_standard_e2() {
     find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
 }
 
+/// Runs pitch‑tracking on an already‑decoded **slice of samples** and asserts that the
+/// expected `note` is detected at least once.
+///
+/// Frame‑based processing (2048 samples). Yin is an autocorrelation pitch 
+/// detector: it needs a short window that contains at least a couple of 
+/// periods of the fundamental.  
+///   - At 48 kHz a 2048‑sample frame ≈ 42 ms, which comfortably contains  
+///     two + periods down to ~60 Hz (the `min_frequency` chosen).  
+///   - Using the full 12‑second file at once would blur many periods together,
+///     destroying the clear trough in the Yin difference function; a small
+///     window keeps the signal quasi‑stationary and maximises accuracy.
+///
+/// Hop size (512 samples)
+///   - Overlapping hops (¼‑frame here) give ~10 ms temporal resolution while
+///     re‑using 75 % of each previous frame’s data. That’s what a live
+///     microphone pipeline would do: slide a ring‑buffer forward and analyse
+///     it again, fast enough to feel real‑time but slow enough to be cheap.
+///
+/// Early bailout (`process_until = len / 4`)
+///   - The test doesn’t need to scan the whole clip—just long enough to hit one
+///     instance of the target note—so we quit after the first quarter to keep
+///     unit‑tests snappy.
+///
+/// Simulating a microphone
+///   - In production you would feed `yin.process_sample(sample)` continuously
+///     from an audio callback.  Splitting `samples` into small, overlapping
+///     blocks replicates that streaming behaviour inside a deterministic test
+///     without the complexity of real I/O threads.
+///
+/// The assertions ensure:
+/// 1. At least one pitch is detected (`picked_up_something`).  
+/// 2. Every detected pitch normalises to the expected musical `note` under the
+///    chosen `tuning` scheme.
+///
+/// Together these checks act as a regression test for the Yin wrapper as well
+/// as for the entire decoding + normalisation pipeline.
 #[cfg(test)]
 fn find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
     let mut yin = YinPitchDetector::new(
