@@ -374,7 +374,7 @@ use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
 
 #[cfg(test)]
-fn get_sample_rate(path: &str) -> u32 {
+fn m4a_get_sample_rate(path: &str) -> u32 {
     let file = File::open(path).expect("Failed to open file");
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -521,7 +521,7 @@ fn read_wav_as_f32(path: &str) -> Vec<f32> {
 }
 
 #[cfg(test)]
-fn get_wav_sample_rate(path: &str) -> u32 {
+fn wav_get_sample_rate(path: &str) -> u32 {
     let reader = WavReader::open(path).expect("Failed to open WAV file");
     let spec = reader.spec();
     spec.sample_rate
@@ -531,7 +531,7 @@ fn get_wav_sample_rate(path: &str) -> u32 {
 #[test]
 fn test_basic_yin_standard_e2() {
     const FILE: &str = "test_assets/82.wav";
-    let sr: u32 = get_wav_sample_rate(FILE);
+    let sr: u32 = wav_get_sample_rate(FILE);
     let samples = read_wav_as_f32(FILE);
     let mut yin = YinPitchDetector::new(
         0.1,   // threshold
@@ -570,20 +570,20 @@ fn test_basic_yin_standard_e2() {
 #[test]
 fn test_recorded_yin_standard_a2() {
     let file: &str = "test_assets/A.m4a";
-    let sr: u32 = get_sample_rate(file);
+    let sr: u32 = m4a_get_sample_rate(file);
     assert_eq!(sr, 48_000);
     let samples = read_m4a_as_f32(file);
-    find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
+    yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
 }
 
 #[cfg(test)]
 #[test]
 fn test_recorded_yin_standard_e2() {
     let file: &str = "test_assets/E2.m4a";
-    let sr: u32 = get_sample_rate(file);
+    let sr: u32 = m4a_get_sample_rate(file);
     assert_eq!(sr, 48_000);
     let samples = read_m4a_as_f32(file);
-    find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
+    yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
 }
 
 /// Runs pitch‑tracking on an already‑decoded **slice of samples** and asserts that the
@@ -623,7 +623,7 @@ fn test_recorded_yin_standard_e2() {
 /// Together these checks act as a regression test for the Yin wrapper as well
 /// as for the entire decoding + normalisation pipeline.
 #[cfg(test)]
-fn find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
+fn yin_find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
     let mut yin = YinPitchDetector::new(
         0.1,   // threshold
         60.0,  // min frequency
