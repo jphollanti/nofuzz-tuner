@@ -68,7 +68,11 @@ jobs:
 
       # Run tests
       - name: Run tests
-        run: cargo test --all-features --all-targets
+        run: |
+          cargo test --all-features --all-targets
+          cd nofuzz_tuner_lib
+          cargo test --all-features --all-targets
+          cd ..
 
       # Install wasm-pack (only if not already cached)
       - name: Install wasm-pack
