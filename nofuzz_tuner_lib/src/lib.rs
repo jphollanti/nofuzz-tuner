@@ -589,8 +589,8 @@ fn test_recorded_yin_standard_e2() {
 /// Runs pitch‑tracking on an already‑decoded **slice of samples** and asserts that the
 /// expected `note` is detected at least once.
 ///
-/// Frame‑based processing (2048 samples). Yin is an autocorrelation pitch 
-/// detector: it needs a short window that contains at least a couple of 
+/// Frame‑based processing (2048 samples). Yin is an autocorrelation pitch
+/// detector: it needs a short window that contains at least a couple of
 /// periods of the fundamental.  
 ///   - At 48 kHz a 2048‑sample frame ≈ 42 ms, which comfortably contains  
 ///     two + periods down to ~60 Hz (the `min_frequency` chosen).  
