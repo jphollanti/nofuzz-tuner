@@ -359,15 +359,13 @@ use hound::WavReader;
 #[cfg(test)]
 use std::fs::File;
 #[cfg(test)]
-use std::io::BufReader;
-#[cfg(test)]
-use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal, SignalSpec};
+use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
 #[cfg(test)]
 use symphonia::core::codecs::DecoderOptions;
 #[cfg(test)]
-use symphonia::core::formats::{FormatOptions, Track};
+use symphonia::core::formats::FormatOptions;
 #[cfg(test)]
-use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::io::MediaSourceStream;
 #[cfg(test)]
 use symphonia::core::meta::MetadataOptions;
 #[cfg(test)]
@@ -403,19 +401,13 @@ fn get_sample_rate(path: &str) -> u32 {
 }
 
 #[cfg(test)]
-fn read_m4a_as_f32_samples(path: &str, target_sample_count: usize) -> Vec<f32> {
+pub fn read_m4a_as_f32(path: &str) -> Vec<f32> {
     let file = File::open(path).expect("Failed to open file");
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let hint = Hint::new(); // optional: hint.with_extension("m4a");
+    let hint = Hint::new(); // You can add `.with_extension("m4a")` if needed
 
     let probed = get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
         .expect("Failed to probe format");
 
     let mut format = probed.format;
@@ -428,52 +420,59 @@ fn read_m4a_as_f32_samples(path: &str, target_sample_count: usize) -> Vec<f32> {
 
     let codec_params = &track.codec_params;
     let mut decoder = symphonia::default::get_codecs()
-        .make(&codec_params, &DecoderOptions::default())
+        .make(codec_params, &DecoderOptions::default())
         .expect("Failed to create decoder");
 
-    let mut sample_buffer: Option<SampleBuffer<f32>> = None;
-    let mut output = Vec::with_capacity(target_sample_count);
+    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut output = Vec::new();
 
-    while output.len() < target_sample_count {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(_) => break,
+    while let Ok(packet) = format.next_packet() {
+        let decoded = match decoder.decode(&packet) {
+            Ok(audio_buf) => audio_buf,
+            Err(_) => continue, // skip decode errors gracefully
         };
 
-        let decoded = decoder.decode(&packet).expect("Decode failed");
+        match decoded {
+            AudioBufferRef::F32(buf) => {
+                let channels = buf.spec().channels.count();
+                let frames = buf.frames();
+                for frame_idx in 0..frames {
+                    let mono_sample = if channels == 1 {
+                        buf.chan(0)[frame_idx]
+                    } else {
+                        // Downmix stereo by averaging channels
+                        let mut sum = 0.0;
+                        for ch in 0..channels {
+                            sum += buf.chan(ch)[frame_idx];
+                        }
+                        sum / channels as f32
+                    };
+                    output.push(mono_sample);
+                }
+            }
+            _ => {
+                // If it's not already f32, convert to it
+                let spec = *decoded.spec();
+                let duration = decoded.capacity() as u64;
+                let channel_count = spec.channels.count();
+                let mut conv_buf = sample_buf
+                    .take()
+                    .unwrap_or_else(|| SampleBuffer::<f32>::new(duration, spec));
+                conv_buf.copy_interleaved_ref(decoded);
+                sample_buf = Some(conv_buf);
 
-        if let AudioBufferRef::F32(buf) = decoded {
-            // Already in f32? Sweet, clone it out
-            for ch in 0..buf.spec().channels.count() {
-                for frame in 0..buf.frames() {
-                    output.push(buf.chan(ch)[frame]);
-                    if output.len() >= target_sample_count {
-                        break;
-                    }
-                }
-                if output.len() >= target_sample_count {
-                    break;
+                let conv = sample_buf.as_ref().unwrap();
+                let samples = conv.samples();
+
+                // Now use the stored `channel_count`
+                for chunk in samples.chunks(channel_count) {
+                    let sum: f32 = chunk.iter().copied().sum();
+                    output.push(sum / channel_count as f32);
                 }
             }
-        } else {
-            // Convert to f32 if not already
-            let spec = *decoded.spec();
-            let duration = decoded.capacity() as u64;
-            let mut conv = sample_buffer
-                .take()
-                .unwrap_or_else(|| SampleBuffer::<f32>::new(duration, spec));
-            conv.copy_interleaved_ref(decoded);
-            for sample in conv.samples() {
-                output.push(*sample);
-                if output.len() >= target_sample_count {
-                    break;
-                }
-            }
-            sample_buffer = Some(conv);
         }
     }
 
-    output.truncate(target_sample_count); // safety
     output
 }
 
@@ -562,59 +561,55 @@ fn test_basic_yin_standard_e2() {
     }
 }
 
-/*TODO
 #[cfg(test)]
-fn test_recorded_yin_standard_e2() {
-    const FILE: &str = "test_assets/A.m4a";
-    let sr: u32 = get_sample_rate(FILE);
-    println!(" --- Sample rate: {}", sr);
+#[test]
+fn test_recorded_yin_standard_a2() {
+    let file: &str = "test_assets/A.m4a";
+    let sr: u32 = get_sample_rate(file);
     assert_eq!(sr, 48_000);
+    let samples = read_m4a_as_f32(file);
+    find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
+}
 
-    // read in a single second of audio
-    let sample_size = 44100;
-    let get_nth_second = 1;
-    let get_seconds = 1;
-    let samples_to_read = sample_size * get_nth_second;
-    let samples_to_skip = sample_size * (get_nth_second - get_seconds);
-    let samples_to_test = sample_size * get_seconds;
+#[cfg(test)]
+#[test]
+fn test_recorded_yin_standard_e2() {
+    let file: &str = "test_assets/E2.m4a";
+    let sr: u32 = get_sample_rate(file);
+    assert_eq!(sr, 48_000);
+    let samples = read_m4a_as_f32(file);
+    find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
+}
 
-    let read_samples = read_m4a_as_f32_samples(FILE, samples_to_read);
-    let samples = &read_samples[samples_to_skip..];
-
-    assert_eq!(samples.len(), samples_to_test);
-
+#[cfg(test)]
+fn find_note_from_samples(
+    samples: &[f32],
+    sample_rate: usize,
+    tuning: &str,
+    note: &str,
+) {
     let mut yin = YinPitchDetector::new(
         0.1,   // threshold
         60.0,  // min frequency
         500.0, // max frequency
-        sr as usize,
+        sample_rate,
     );
 
-    let frame_size = 4096;
-    let offset = 0; // You can slide this later
+    let frame_size = 2048;
+    let hop_size = 512; // or 1024 for lower resolution
+    let mut picked_up_something = false;
+    let process_until = samples.len() / 4 - frame_size; // we don't need to go through the whole file
 
-    let frame = &samples[offset..offset + frame_size];
-    let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
+    for i in (0..process_until - frame_size).step_by(hop_size) {
+        let frame = &samples[i..i + frame_size];
+        let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
 
-    let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
-    println!("--- RMS: {}", rms);
-
-    //println!("frame: {:?}", &frame_f64);
-
-    match yin.maybe_find_pitch(&frame_f64, "standard-e") {
-        Some(res) => {
-            // PitchResult {
-            //     freq: res.freq(),
-            //     tuning_to: TuningTo {
-            //         tuning: res.tuning_to.tuning(),
-            //         note: res.tuning_to.note(),
-            //         freq: res.tuning_to.freq(),
-            //         distance: res.tuning_to.distance(),
-            //         cents: res.tuning_to.cents(),
-            //     },
-            // };
-            assert!(res.tuning_to().note() == "A2");
+        let pitch = yin.maybe_find_pitch(&frame_f64, tuning);
+        if let Some(res) = pitch {
+            picked_up_something = true;
+            println!("Time {:.2}s - Pitch: {:.2} Hz", i as f32 / sample_rate as f32, res.freq());
+            assert!(res.tuning_to().note() == note);
         }
-        None => panic!("====== Yin couldn't detect pitch in this frame."),
     }
-}*/
+    assert!(picked_up_something, "Yin didn't pick up anything.");
+}
