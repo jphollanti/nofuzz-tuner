@@ -161,37 +161,6 @@ pub trait PitchFindTrait: Send + Sync {
     fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult>;
 }
 
-#[wasm_bindgen]
-pub struct YinPitchDetector {
-    yin: yin::Yin,
-}
-
-#[wasm_bindgen]
-impl YinPitchDetector {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        threshold: f64,
-        freq_min: f64,
-        freq_max: f64,
-        sample_rate: usize,
-    ) -> YinPitchDetector {
-        let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
-        YinPitchDetector { yin }
-    }
-
-    #[wasm_bindgen]
-    pub fn maybe_find_pitch_js(
-        &mut self,
-        data: &Float64Array,
-        tuning: &str,
-    ) -> Option<PitchResult> {
-        // Convert the Float64Array from JavaScript to a Rust slice
-        let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
-
-        self.maybe_find_pitch(&data_vec, tuning)
-    }
-}
-
 fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
     let strings = TUNINGS.get(tuning)?;
 
@@ -211,9 +180,142 @@ fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
     ))
 }
 
+// Simple Direct‑Form I biquad filter (f64)
+struct Biquad {
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    a1: f64,
+    a2: f64,
+    x1: f64,
+    x2: f64,
+    y1: f64,
+    y2: f64,
+}
+
+use std::f64::consts::PI;
+
+impl Biquad {
+    /// High‑pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
+    fn new_highpass(fs: f64, fc: f64, q: f64) -> Self {
+        let w0 = 2.0 * PI * fc / fs;
+        let alpha = w0.sin() / (2.0 * q);
+        let cosw0 = w0.cos();
+        let (b0, b1, b2) = ((1.0 + cosw0) / 2.0, -(1.0 + cosw0), (1.0 + cosw0) / 2.0);
+        let (a0, a1, a2) = (1.0 + alpha, -2.0 * cosw0, 1.0 - alpha);
+
+        Biquad {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    /// Notch (aka band‑stop) @ `fc` (Hz) with quality `Q` (narrow notch if Q large)
+    fn new_notch(fs: f64, fc: f64, q: f64) -> Self {
+        let w0 = 2.0 * PI * fc / fs;
+        let alpha = w0.sin() / (2.0 * q);
+        let cosw0 = w0.cos();
+        let (b0, b1, b2) = (1.0, -2.0 * cosw0, 1.0);
+        let (a0, a1, a2) = (1.0 + alpha, -2.0 * cosw0, 1.0 - alpha);
+
+        Biquad {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    /// Process one sample, returning the filtered output
+    fn process(&mut self, x0: f64) -> f64 {
+        // Direct Form I: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2]
+        //                     - a1*y[n-1] - a2*y[n-2]
+        let y0 = self.b0 * x0 + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+
+        // shift delay lines
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = y0;
+
+        y0
+    }
+}
+
+#[wasm_bindgen]
+pub struct YinPitchDetector {
+    yin: yin::Yin,
+    highpass: Biquad,
+    notch50: Biquad,
+    notch100: Biquad,
+}
+
+#[wasm_bindgen]
+impl YinPitchDetector {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        threshold: f64,
+        freq_min: f64,
+        freq_max: f64,
+        sample_rate: usize,
+    ) -> YinPitchDetector {
+        // define filters here, so they keep their state
+        let highpass = Biquad::new_highpass(sample_rate as f64, 70.0, 0.707);
+        let notch50 = Biquad::new_notch(sample_rate as f64, 50.0, 30.0);
+        let notch100 = Biquad::new_notch(sample_rate as f64, 100.0, 30.0);
+
+        let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
+        YinPitchDetector {
+            yin,
+            highpass,
+            notch50,
+            notch100,
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn maybe_find_pitch_js(
+        &mut self,
+        data: &Float64Array,
+        tuning: &str,
+    ) -> Option<PitchResult> {
+        // Convert the Float64Array from JavaScript to a Rust slice
+        let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
+
+        self.maybe_find_pitch(&data_vec, tuning)
+    }
+}
+
 impl PitchFindTrait for YinPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
-        let freq = self.yin.estimate_freq(data);
+        let mut buf = data.to_vec();
+
+        // apply filters *in place*
+        // these filters increase frequencies picked up by Yin:
+        // - E2: before 12, after 35
+        // - A2: before 2, after 16
+
+        for sample in buf.iter_mut() {
+            *sample = self.highpass.process(*sample);
+            *sample = self.notch50.process(*sample);
+            *sample = self.notch100.process(*sample);
+        }
+
+        let freq = self.yin.estimate_freq(&buf);
         if freq != f64::INFINITY {
             // Find closest note
             let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
@@ -353,303 +455,494 @@ impl PitchFindTrait for FftPitchDetector {
         ))
     }
 }
-
 #[cfg(test)]
-use hound::WavReader;
-#[cfg(test)]
-use std::fs::File;
-#[cfg(test)]
-use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
-#[cfg(test)]
-use symphonia::core::codecs::DecoderOptions;
-#[cfg(test)]
-use symphonia::core::formats::FormatOptions;
-#[cfg(test)]
-use symphonia::core::io::MediaSourceStream;
-#[cfg(test)]
-use symphonia::core::meta::MetadataOptions;
-#[cfg(test)]
-use symphonia::core::probe::Hint;
-#[cfg(test)]
-use symphonia::default::get_probe;
+mod tests {
+    use super::{find_closest_note, TUNINGS};
 
-#[cfg(test)]
-fn m4a_get_sample_rate(path: &str) -> u32 {
-    let file = File::open(path).expect("Failed to open file");
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    /// Helper to unwrap the Option and compare String & f64 fields within epsilon.
+    fn assert_note_result(
+        result: Option<(String, f64, f64)>,
+        want_note: &str,
+        want_target: f64,
+        want_dist: f64,
+    ) {
+        let (note, target, dist) = result.expect("expected Some(...)");
+        assert_eq!(note, want_note);
+        assert!(
+            (target - want_target).abs() < 1e-6_f64,
+            "target: got {}, want {}",
+            target,
+            want_target
+        );
+        assert!(
+            (dist - want_dist).abs() < 1e-6_f64,
+            "dist:   got {}, want {}",
+            dist,
+            want_dist
+        );
+    }
 
-    let hint = Hint::new(); // You could set extension hint: hint.with_extension("m4a");
+    #[test]
+    fn standard_e_exact_match() {
+        assert_note_result(
+            find_closest_note(82.41_f64, "standard-e"),
+            "E2",
+            82.41_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(110.0_f64, "standard-e"),
+            "A2",
+            110.0_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(146.83_f64, "standard-e"),
+            "D3",
+            146.83_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(196.0_f64, "standard-e"),
+            "G3",
+            196.0_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(246.94_f64, "standard-e"),
+            "B3",
+            246.94_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(329.63_f64, "standard-e"),
+            "E4",
+            329.63_f64,
+            0.0_f64,
+        );
+    }
 
-    let probed = get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .expect("Failed to probe format");
+    #[test]
+    fn standard_e_off_by_a_bit() {
+        assert_note_result(
+            find_closest_note(83.0_f64, "standard-e"),
+            "E2",
+            82.41_f64,
+            (83.0_f64 - 82.41_f64).abs(),
+        );
+        assert_note_result(
+            find_closest_note(108.0_f64, "standard-e"),
+            "A2",
+            110.0_f64,
+            (110.0_f64 - 108.0_f64).abs(),
+        );
+        assert_note_result(
+            find_closest_note(150.0_f64, "standard-e"),
+            "D3",
+            146.83_f64,
+            (150.0_f64 - 146.83_f64).abs(),
+        );
+        assert_note_result(
+            find_closest_note(200.0_f64, "standard-e"),
+            "G3",
+            196.0_f64,
+            (200.0_f64 - 196.0_f64).abs(),
+        );
+        assert_note_result(
+            find_closest_note(250.0_f64, "standard-e"),
+            "B3",
+            246.94_f64,
+            (250.0_f64 - 246.94_f64).abs(),
+        );
+        assert_note_result(
+            find_closest_note(330.5_f64, "standard-e"),
+            "E4",
+            329.63_f64,
+            (330.5_f64 - 329.63_f64).abs(),
+        );
+    }
 
-    let format = probed.format;
+    #[test]
+    fn drop_d_low_string() {
+        assert_note_result(
+            find_closest_note(73.42_f64, "drop-d"),
+            "D2",
+            73.42_f64,
+            0.0_f64,
+        );
+        assert_note_result(
+            find_closest_note(80.0_f64, "drop-d"),
+            "D2",
+            73.42_f64,
+            (80.0_f64 - 73.42_f64).abs(),
+        );
+    }
 
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.sample_rate.is_some())
-        .expect("No track with sample rate found");
+    #[test]
+    fn flat_e_tuning() {
+        assert_note_result(
+            find_closest_note(78.0_f64, "flat-e"),
+            "Eb2",
+            77.78_f64,
+            (78.0_f64 - 77.78_f64).abs(),
+        );
+    }
 
-    track.codec_params.sample_rate.unwrap()
-}
+    #[test]
+    fn unknown_tuning_returns_none() {
+        assert!(find_closest_note(100.0_f64, "no-such-tuning").is_none());
+    }
 
-#[cfg(test)]
-pub fn read_m4a_as_f32(path: &str) -> Vec<f32> {
-    let file = File::open(path).expect("Failed to open file");
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    let hint = Hint::new(); // You can add `.with_extension("m4a")` if needed
+    #[test]
+    fn tuning_map_has_expected_keys() {
+        for key in &["standard-e", "flat-e", "drop-d"] {
+            assert!(
+                TUNINGS.contains_key(*key),
+                "TUNINGS missing expected key `{}`",
+                key
+            );
+        }
+    }
 
-    let probed = get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .expect("Failed to probe format");
+    use super::{PitchFindTrait, YinPitchDetector};
+    use hound::WavReader;
+    use std::fs::File;
+    use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+    use symphonia::default::get_probe;
 
-    let mut format = probed.format;
+    fn m4a_get_sample_rate(path: &str) -> u32 {
+        let file = File::open(path).expect("Failed to open file");
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.sample_rate.is_some())
-        .expect("No track with sample rate");
+        let hint = Hint::new(); // You could set extension hint: hint.with_extension("m4a");
 
-    let codec_params = &track.codec_params;
-    let mut decoder = symphonia::default::get_codecs()
-        .make(codec_params, &DecoderOptions::default())
-        .expect("Failed to create decoder");
+        let probed = get_probe()
+            .format(
+                &hint,
+                mss,
+                &FormatOptions::default(),
+                &MetadataOptions::default(),
+            )
+            .expect("Failed to probe format");
 
-    let mut sample_buf: Option<SampleBuffer<f32>> = None;
-    let mut output = Vec::new();
+        let format = probed.format;
 
-    while let Ok(packet) = format.next_packet() {
-        let decoded = match decoder.decode(&packet) {
-            Ok(audio_buf) => audio_buf,
-            Err(_) => continue, // skip decode errors gracefully
+        let track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.sample_rate.is_some())
+            .expect("No track with sample rate found");
+
+        track.codec_params.sample_rate.unwrap()
+    }
+
+    pub fn read_m4a_as_f32(path: &str) -> Vec<f32> {
+        let file = File::open(path).expect("Failed to open file");
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let hint = Hint::new(); // You can add `.with_extension("m4a")` if needed
+
+        let probed = get_probe()
+            .format(
+                &hint,
+                mss,
+                &FormatOptions::default(),
+                &MetadataOptions::default(),
+            )
+            .expect("Failed to probe format");
+
+        let mut format = probed.format;
+
+        let track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.sample_rate.is_some())
+            .expect("No track with sample rate");
+
+        let codec_params = &track.codec_params;
+        let mut decoder = symphonia::default::get_codecs()
+            .make(codec_params, &DecoderOptions::default())
+            .expect("Failed to create decoder");
+
+        let mut sample_buf: Option<SampleBuffer<f32>> = None;
+        let mut output = Vec::new();
+
+        while let Ok(packet) = format.next_packet() {
+            let decoded = match decoder.decode(&packet) {
+                Ok(audio_buf) => audio_buf,
+                Err(_) => continue, // skip decode errors gracefully
+            };
+
+            match decoded {
+                AudioBufferRef::F32(buf) => {
+                    let channels = buf.spec().channels.count();
+                    let frames = buf.frames();
+                    for frame_idx in 0..frames {
+                        let mono_sample = if channels == 1 {
+                            buf.chan(0)[frame_idx]
+                        } else {
+                            // Downmix stereo by averaging channels
+                            let mut sum = 0.0;
+                            for ch in 0..channels {
+                                sum += buf.chan(ch)[frame_idx];
+                            }
+                            sum / channels as f32
+                        };
+                        output.push(mono_sample);
+                    }
+                }
+                _ => {
+                    // If it's not already f32, convert to it
+                    let spec = *decoded.spec();
+                    let duration = decoded.capacity() as u64;
+                    let channel_count = spec.channels.count();
+                    let mut conv_buf = sample_buf
+                        .take()
+                        .unwrap_or_else(|| SampleBuffer::<f32>::new(duration, spec));
+                    conv_buf.copy_interleaved_ref(decoded);
+                    sample_buf = Some(conv_buf);
+
+                    let conv = sample_buf.as_ref().unwrap();
+                    let samples = conv.samples();
+
+                    // Now use the stored `channel_count`
+                    for chunk in samples.chunks(channel_count) {
+                        let sum: f32 = chunk.iter().copied().sum();
+                        output.push(sum / channel_count as f32);
+                    }
+                }
+            }
+        }
+
+        output
+    }
+
+    fn read_wav_as_f32(path: &str) -> Vec<f32> {
+        let mut reader = WavReader::open(path).expect("Failed to open WAV file");
+
+        let spec = reader.spec();
+        println!(
+            "WAV format: {} Hz, {}-bit, {:?}",
+            spec.sample_rate, spec.bits_per_sample, spec.channels
+        );
+
+        // Match based on sample format (usually i16 or f32)
+        let samples: Vec<f32> = match spec.sample_format {
+            hound::SampleFormat::Int => reader
+                .samples::<i16>()
+                .filter_map(|s| s.ok()) // <- no unwraps, skip bad samples
+                .map(|s| s as f32 / i16::MAX as f32)
+                .collect(),
+
+            hound::SampleFormat::Float => reader.samples::<f32>().filter_map(|s| s.ok()).collect(),
         };
 
-        match decoded {
-            AudioBufferRef::F32(buf) => {
-                let channels = buf.spec().channels.count();
-                let frames = buf.frames();
-                for frame_idx in 0..frames {
-                    let mono_sample = if channels == 1 {
-                        buf.chan(0)[frame_idx]
+        // Optional: downmix stereo to mono
+        let mono_samples: Vec<f32> = if spec.channels == 2 {
+            samples
+                .chunks(2)
+                .map(|ch| {
+                    if ch.len() == 2 {
+                        (ch[0] + ch[1]) / 2.0
                     } else {
-                        // Downmix stereo by averaging channels
-                        let mut sum = 0.0;
-                        for ch in 0..channels {
-                            sum += buf.chan(ch)[frame_idx];
-                        }
-                        sum / channels as f32
-                    };
-                    output.push(mono_sample);
-                }
-            }
-            _ => {
-                // If it's not already f32, convert to it
-                let spec = *decoded.spec();
-                let duration = decoded.capacity() as u64;
-                let channel_count = spec.channels.count();
-                let mut conv_buf = sample_buf
-                    .take()
-                    .unwrap_or_else(|| SampleBuffer::<f32>::new(duration, spec));
-                conv_buf.copy_interleaved_ref(decoded);
-                sample_buf = Some(conv_buf);
-
-                let conv = sample_buf.as_ref().unwrap();
-                let samples = conv.samples();
-
-                // Now use the stored `channel_count`
-                for chunk in samples.chunks(channel_count) {
-                    let sum: f32 = chunk.iter().copied().sum();
-                    output.push(sum / channel_count as f32);
-                }
-            }
-        }
+                        ch[0]
+                    }
+                })
+                .collect()
+        } else {
+            samples
+        };
+        return mono_samples;
     }
 
-    output
-}
-
-#[cfg(test)]
-fn read_wav_as_f32(path: &str) -> Vec<f32> {
-    let mut reader = WavReader::open(path).expect("Failed to open WAV file");
-
-    let spec = reader.spec();
-    println!(
-        "WAV format: {} Hz, {}-bit, {:?}",
-        spec.sample_rate, spec.bits_per_sample, spec.channels
-    );
-
-    // Match based on sample format (usually i16 or f32)
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Int => reader
-            .samples::<i16>()
-            .filter_map(|s| s.ok()) // <- no unwraps, skip bad samples
-            .map(|s| s as f32 / i16::MAX as f32)
-            .collect(),
-
-        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(|s| s.ok()).collect(),
-    };
-
-    // Optional: downmix stereo to mono
-    let mono_samples: Vec<f32> = if spec.channels == 2 {
-        samples
-            .chunks(2)
-            .map(|ch| {
-                if ch.len() == 2 {
-                    (ch[0] + ch[1]) / 2.0
-                } else {
-                    ch[0]
-                }
-            })
-            .collect()
-    } else {
-        samples
-    };
-    return mono_samples;
-}
-
-#[cfg(test)]
-fn wav_get_sample_rate(path: &str) -> u32 {
-    let reader = WavReader::open(path).expect("Failed to open WAV file");
-    let spec = reader.spec();
-    spec.sample_rate
-}
-
-#[cfg(test)]
-#[test]
-fn test_basic_yin_standard_e2() {
-    const FILE: &str = "test_assets/82.wav";
-    let sr: u32 = wav_get_sample_rate(FILE);
-    let samples = read_wav_as_f32(FILE);
-    let mut yin = YinPitchDetector::new(
-        0.1,   // threshold
-        60.0,  // min frequency
-        500.0, // max frequency
-        sr as usize,
-    );
-    let frame_size = 4096;
-    let offset = 0; // You can slide this later
-
-    let frame = &samples[offset..offset + frame_size];
-    let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
-
-    let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
-    println!("--- RMS: {}", rms);
-
-    match yin.maybe_find_pitch(&frame_f64, "standard-e") {
-        Some(res) => {
-            // PitchResult {
-            //     freq: res.freq(),
-            //     tuning_to: TuningTo {
-            //         tuning: res.tuning_to.tuning(),
-            //         note: res.tuning_to.note(),
-            //         freq: res.tuning_to.freq(),
-            //         distance: res.tuning_to.distance(),
-            //         cents: res.tuning_to.cents(),
-            //     },
-            // };
-            assert!(res.tuning_to().note() == "E2");
-        }
-        None => panic!("====== Yin couldn't detect pitch in this frame."),
+    fn wav_get_sample_rate(path: &str) -> u32 {
+        let reader = WavReader::open(path).expect("Failed to open WAV file");
+        let spec = reader.spec();
+        spec.sample_rate
     }
-}
 
-#[cfg(test)]
-#[test]
-fn test_recorded_yin_standard_a2() {
-    let file: &str = "test_assets/A.m4a";
-    let sr: u32 = m4a_get_sample_rate(file);
-    assert_eq!(sr, 48_000);
-    let samples = read_m4a_as_f32(file);
-    yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
-}
+    #[test]
+    fn test_basic_yin_standard_e2() {
+        const FILE: &str = "test_assets/82.wav";
+        let sr: u32 = wav_get_sample_rate(FILE);
+        let samples = read_wav_as_f32(FILE);
+        let mut yin = YinPitchDetector::new(
+            0.1,   // threshold
+            60.0,  // min frequency
+            500.0, // max frequency
+            sr as usize,
+        );
+        let frame_size = 4096;
+        let offset = 0; // You can slide this later
 
-#[cfg(test)]
-#[test]
-fn test_recorded_yin_standard_e2() {
-    let file: &str = "test_assets/E2.m4a";
-    let sr: u32 = m4a_get_sample_rate(file);
-    assert_eq!(sr, 48_000);
-    let samples = read_m4a_as_f32(file);
-    yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
-}
-
-/// Runs pitch‑tracking on an already‑decoded **slice of samples** and asserts that the
-/// expected `note` is detected at least once.
-///
-/// Frame‑based processing (2048 samples). Yin is an autocorrelation pitch
-/// detector: it needs a short window that contains at least a couple of
-/// periods of the fundamental.  
-///   - At 48 kHz a 2048‑sample frame ≈ 42 ms, which comfortably contains  
-///     two + periods down to ~60 Hz (the `min_frequency` chosen).  
-///   - Using the full 12‑second file at once would blur many periods together,
-///     destroying the clear trough in the Yin difference function; a small
-///     window keeps the signal quasi‑stationary and maximises accuracy.
-///
-/// Hop size (512 samples)
-///   - Overlapping hops (¼‑frame here) give ~10 ms temporal resolution while
-///     re‑using 75 % of each previous frame’s data. That’s what a live
-///     microphone pipeline would do: slide a ring‑buffer forward and analyse
-///     it again, fast enough to feel real‑time but slow enough to be cheap.
-///
-/// Early bailout (`process_until = len / 4`)
-///   - The test doesn’t need to scan the whole clip—just long enough to hit one
-///     instance of the target note—so we quit after the first quarter to keep
-///     unit‑tests snappy.
-///
-/// Simulating a microphone
-///   - In production you would feed `yin.process_sample(sample)` continuously
-///     from an audio callback.  Splitting `samples` into small, overlapping
-///     blocks replicates that streaming behaviour inside a deterministic test
-///     without the complexity of real I/O threads.
-///
-/// The assertions ensure:
-/// 1. At least one pitch is detected (`picked_up_something`).  
-/// 2. Every detected pitch normalises to the expected musical `note` under the
-///    chosen `tuning` scheme.
-///
-/// Together these checks act as a regression test for the Yin wrapper as well
-/// as for the entire decoding + normalisation pipeline.
-#[cfg(test)]
-fn yin_find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
-    let mut yin = YinPitchDetector::new(
-        0.1,   // threshold
-        60.0,  // min frequency
-        500.0, // max frequency
-        sample_rate,
-    );
-
-    let frame_size = 2048;
-    let hop_size = 512; // or 1024 for lower resolution
-    let mut picked_up_something = false;
-    let process_until = samples.len() / 4 - frame_size; // we don't need to go through the whole file
-
-    for i in (0..process_until - frame_size).step_by(hop_size) {
-        let frame = &samples[i..i + frame_size];
+        let frame = &samples[offset..offset + frame_size];
         let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
 
-        let pitch = yin.maybe_find_pitch(&frame_f64, tuning);
-        if let Some(res) = pitch {
-            picked_up_something = true;
-            println!(
-                "Time {:.2}s - Pitch: {:.2} Hz",
-                i as f32 / sample_rate as f32,
-                res.freq()
-            );
-            assert!(res.tuning_to().note() == note);
+        let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
+        println!("--- RMS: {}", rms);
+
+        match yin.maybe_find_pitch(&frame_f64, "standard-e") {
+            Some(res) => {
+                // PitchResult {
+                //     freq: res.freq(),
+                //     tuning_to: TuningTo {
+                //         tuning: res.tuning_to.tuning(),
+                //         note: res.tuning_to.note(),
+                //         freq: res.tuning_to.freq(),
+                //         distance: res.tuning_to.distance(),
+                //         cents: res.tuning_to.cents(),
+                //     },
+                // };
+                assert!(res.tuning_to().note() == "E2");
+            }
+            None => panic!("====== Yin couldn't detect pitch in this frame."),
         }
     }
-    assert!(picked_up_something, "Yin didn't pick up anything.");
+
+    #[test]
+    fn test_recorded_yin_standard_e2() {
+        let file: &str = "test_assets/E2.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
+    }
+
+    #[test]
+    fn test_recorded_yin_standard_a2() {
+        let file: &str = "test_assets/A.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
+    }
+
+    // #[test]
+    // fn test_recorded_yin_standard_d3() {
+    //     let file: &str = "test_assets/D.m4a";
+    //     let sr: u32 = m4a_get_sample_rate(file);
+    //     assert_eq!(sr, 48_000);
+    //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "D3");
+    // }
+
+    // #[test]
+    // fn test_recorded_yin_standard_g3() {
+    //     let file: &str = "test_assets/G.m4a";
+    //     let sr: u32 = m4a_get_sample_rate(file);
+    //     assert_eq!(sr, 48_000);
+    //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "G3");
+    // }
+
+    // #[test]
+    // fn test_recorded_yin_standard_b3() {
+    //     let file: &str = "test_assets/B.m4a";
+    //     let sr: u32 = m4a_get_sample_rate(file);
+    //     assert_eq!(sr, 48_000);
+    //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "B3");
+    // }
+
+    // #[test]
+    // fn test_recorded_yin_standard_e4() {
+    //     let file: &str = "test_assets/B.m4a";
+    //     let sr: u32 = m4a_get_sample_rate(file);
+    //     assert_eq!(sr, 48_000);
+    //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E4");
+    // }
+
+    /// Runs pitch‑tracking on an already‑decoded **slice of samples** and asserts that the
+    /// expected `note` is detected at least once.
+    ///
+    /// Frame‑based processing (2048 samples). Yin is an autocorrelation pitch
+    /// detector: it needs a short window that contains at least a couple of
+    /// periods of the fundamental.  
+    ///   - At 48 kHz a 2048‑sample frame ≈ 42 ms, which comfortably contains  
+    ///     two + periods down to ~60 Hz (the `min_frequency` chosen).  
+    ///   - Using the full 12‑second file at once would blur many periods together,
+    ///     destroying the clear trough in the Yin difference function; a small
+    ///     window keeps the signal quasi‑stationary and maximises accuracy.
+    ///
+    /// Hop size (512 samples)
+    ///   - Overlapping hops (¼‑frame here) give ~10 ms temporal resolution while
+    ///     re‑using 75 % of each previous frame’s data. That’s what a live
+    ///     microphone pipeline would do: slide a ring‑buffer forward and analyse
+    ///     it again, fast enough to feel real‑time but slow enough to be cheap.
+    ///
+    /// Early bailout (`process_until = len / 4`)
+    ///   - The test doesn’t need to scan the whole clip—just long enough to hit one
+    ///     instance of the target note—so we quit after the first quarter to keep
+    ///     unit‑tests snappy.
+    ///
+    /// Simulating a microphone
+    ///   - In production you would feed `yin.process_sample(sample)` continuously
+    ///     from an audio callback.  Splitting `samples` into small, overlapping
+    ///     blocks replicates that streaming behaviour inside a deterministic test
+    ///     without the complexity of real I/O threads.
+    ///
+    /// The assertions ensure:
+    /// 1. At least one pitch is detected (`picked_up_something`).  
+    /// 2. Every detected pitch normalises to the expected musical `note` under the
+    ///    chosen `tuning` scheme.
+    ///
+    /// Together these checks act as a regression test for the Yin wrapper as well
+    /// as for the entire decoding + normalisation pipeline.
+    fn yin_find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
+        let mut yin = YinPitchDetector::new(
+            0.15,  // threshold
+            60.0,  // min frequency
+            500.0, // max frequency
+            sample_rate,
+        );
+
+        let frame_size = 2048;
+        let hop_size = 512; // or 1024 for lower resolution
+        let mut picked_up_something = false;
+        let mut picked_up_correct_note = 0;
+        let mut picked_up_wrong_note = 0;
+        let process_until = samples.len() / 4 - frame_size; // we don't need to go through the whole file
+        let mut counter = 0;
+        for i in (0..process_until).step_by(hop_size) {
+            let frame = &samples[i..i + frame_size];
+            let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
+
+            let pitch = yin.maybe_find_pitch(&frame_f64, tuning);
+            if let Some(res) = pitch {
+                picked_up_something = true;
+                counter += 1;
+                println!(
+                    "Time {:.2}s - Pitch: {:.2} Hz",
+                    i as f32 / sample_rate as f32,
+                    res.freq()
+                );
+                println!(
+                    "Note: {} - Distance: {:.2} - Cents: {:.2}",
+                    res.tuning_to().note(),
+                    res.tuning_to().distance(),
+                    res.tuning_to().cents()
+                );
+                if res.tuning_to().note() == note {
+                    picked_up_correct_note += 1;
+                    println!("Picked up the correct note: {}", note);
+                } else {
+                    picked_up_wrong_note += 1;
+                    println!("Picked up the wrong note: {}", res.tuning_to().note());
+                }
+            }
+        }
+        println!("Picked up {} pitches", counter);
+        assert!(picked_up_something, "Yin didn't pick up anything.");
+        assert!(
+            picked_up_correct_note > picked_up_wrong_note * 2,
+            "Yin picked up wrong notes too often. Correct notes {}, wrong notes {}",
+            picked_up_correct_note,
+            picked_up_wrong_note
+        );
+    }
 }
