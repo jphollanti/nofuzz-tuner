@@ -181,6 +181,8 @@ fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
 }
 
 // Simple Direct‑Form I biquad filter (f64)
+// A 2nd‑order IIR filter, meaning it uses the current sample plus the two previous input samples
+// and the two previous output samples to compute each new output.
 struct Biquad {
     b0: f64,
     b1: f64,
@@ -259,9 +261,33 @@ impl Biquad {
 #[wasm_bindgen]
 pub struct YinPitchDetector {
     yin: yin::Yin,
+
+    /** Filters **/
+    // highpass @ 70 Hz, Q=0.707
+    // Guitar fundamentals start at E2 ≈ 82 Hz (or D2 ≈ 73 Hz in Drop‑D).
+    // Below that lives rumble—from laptop fans, room resonance, mic handling
+    // noise—that can confuse autocorrelation or YIN.
     highpass: Biquad,
+
+    // Filter out mains‑hum in Europe (50 Hz) and US (60 Hz).
+    // Quiet-but-pervasive buzz you hear when your audio gear picks up the AC power signal
+    // from your wall sockets. Origin: Household electricity alternates at either 50 Hz
+    // (Europe, Asia, Africa, most of the world) or 60 Hz (North America, parts of Asia).
+
+    // Cables, transformers, power supplies and even the wiring in walls create tiny
+    // electromagnetic fields. Your mic preamp or guitar cable, especially if unbalanced,
+    // can act like an antenna and accidentally capture that field.
+
+    // A near‑pure low‑frequency tone (plus its 2nd harmonic at 100 Hz or 120 Hz), often
+    // experienced as a steady “hum” or “buzz” under your music.
+
+    // Why notch it out: That tone sits right in the range where guitar fundamentals
+    // live, so removing it with a narrow notch filter ensures pitch detector doesn’t
+    // mistake the hum for a really low string.
     notch50: Biquad,
+    notch60: Biquad,
     notch100: Biquad,
+    notch120: Biquad,
 }
 
 #[wasm_bindgen]
@@ -273,17 +299,20 @@ impl YinPitchDetector {
         freq_max: f64,
         sample_rate: usize,
     ) -> YinPitchDetector {
-        // define filters here, so they keep their state
         let highpass = Biquad::new_highpass(sample_rate as f64, 70.0, 0.707);
         let notch50 = Biquad::new_notch(sample_rate as f64, 50.0, 30.0);
+        let notch60 = Biquad::new_notch(sample_rate as f64, 60.0, 30.0);
         let notch100 = Biquad::new_notch(sample_rate as f64, 100.0, 30.0);
+        let notch120 = Biquad::new_notch(sample_rate as f64, 120.0, 30.0);
 
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
         YinPitchDetector {
             yin,
             highpass,
             notch50,
+            notch60,
             notch100,
+            notch120,
         }
     }
 
@@ -304,15 +333,17 @@ impl PitchFindTrait for YinPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let mut buf = data.to_vec();
 
-        // apply filters *in place*
-        // these filters increase frequencies picked up by Yin:
+        // apply filters in place to increase frequencies picked up by Yin.
+        // Observed changes in unit tests:
         // - E2: before 12, after 35
         // - A2: before 2, after 16
 
         for sample in buf.iter_mut() {
             *sample = self.highpass.process(*sample);
             *sample = self.notch50.process(*sample);
+            *sample = self.notch60.process(*sample);
             *sample = self.notch100.process(*sample);
+            *sample = self.notch120.process(*sample);
         }
 
         let freq = self.yin.estimate_freq(&buf);
