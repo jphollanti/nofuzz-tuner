@@ -58,10 +58,15 @@
 </div>
 
 <style>
-	.app {
+	:global(.app) {
 		display: flex;
 		flex-direction: column;
-		min-height: 100vh;
+		min-height: 100svh;   /* safe on load */
+	}
+
+	/* Chrome/Safari/Firefox modern override */
+	@supports (height: 100dvh) {
+		:global(.app) { min-height: 100dvh; }   /* tracks URL-bar hide/show */
 	}
 
 	main {

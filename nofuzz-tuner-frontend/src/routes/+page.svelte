@@ -422,12 +422,6 @@
 </button>
 
 <style>
-	html, body {
-		margin: 0;
-		height: 100%;
-		overflow: hidden;
-	}
-
 	#controls-container {
 		position: fixed;
 		bottom: calc(5% + env(safe-area-inset-bottom)); /* avoids the home bar */
