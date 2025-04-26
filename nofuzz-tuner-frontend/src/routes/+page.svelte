@@ -45,19 +45,25 @@
 	}
 
 	function drawScale() {
-		if (!canvas_static || !ctx_static) {
+		if (!canvas_static || !ctx_static || !canvas_container) {
 			console.error('Canvas or context not found');
 			return;
 		}
 		const canvas = canvas_static;
 		const ctx = ctx_static;
 		// Set canvas dimensions
-		const width = canvas.width;
-		const height = canvas.height;
+
+		const { clientWidth: w, clientHeight: h } = canvas_container;
+		const DPR = window.devicePixelRatio || 1;
+		const pixW = Math.floor(w * DPR);
+		const pixH = Math.floor(h * DPR);
+
+		const width = pixW;
+		const height = pixH;
 
 		// Draw the linear scale
 		const startX = 0;
-		const endX = canvas.clientWidth;
+		const endX = width;
 		const scaleY = height / 2;
 
 		const centerX = (endX - startX) / 2;
@@ -102,7 +108,7 @@
 	
 	// Function to draw the indicator at a specific value
 	function drawIndicator(tuningTo:any | null, value:number) {
-		if (!canvas_dynamic || !ctx_dynamic) {
+		if (!canvas_dynamic || !ctx_dynamic || !canvas_container) {
 			console.error('Canvas or context not found');
 			return;
 		}
@@ -110,12 +116,17 @@
 		const canvas = canvas_dynamic;
 		const ctx = ctx_dynamic;
 
+		const { clientWidth: w, clientHeight: h } = canvas_container;
+		const DPR = window.devicePixelRatio || 1;
+		const pixW = Math.floor(w * DPR);
+		const pixH = Math.floor(h * DPR);
+
 		// Set canvas dimensions
 		const width = canvas.width;
 		const height = canvas.height;
 
 		const startX = 0; // Starting X position of the scale
-		const endX = canvas.clientWidth; // Ending X position of the scale
+		const endX = width; // Ending X position of the scale
 		const scaleY = height / 2; // Vertical position of the scale
 		const centerX = (endX - startX) / 2;
 		const drawScaleYMin = scaleY - (height * .20);
@@ -244,18 +255,48 @@
 			return;
 		}
 
-		const { clientWidth: w, clientHeight: h } = canvas_container;
+		// const cssW = canvas_container.clientWidth;
+		// const cssH = canvas_container.clientHeight;
+		
 
-		if (canvas_static.width !== w || canvas_static.height !== h) {
+		// // physical pixels (keeps things sharp)
+
+		// // resize only if the buffer actually changed
+		// if (canvas_static.width !== pixW || canvas_static.height !== pixH) {
+		// 	[canvas_static, canvas_dynamic].forEach(c => {
+		// 		c.width  = pixW;
+		// 		c.height = pixH;
+		// 	});
+
+		// 	// scale contexts so you can keep using CSS pixels in draw code
+		// 	[ctx_static, ctx_dynamic].forEach(ctx => {
+		// 		if (ctx) ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+		// 	});
+
+		// 	drawScale(); // static redraw
+		// }
+
+		// // keep CSS size at 100 % of the container
+		// canvas_static .style.width =
+		// canvas_dynamic.style.width = cssW + 'px';
+		// canvas_static .style.height =
+		// canvas_dynamic.style.height = cssH + 'px';
+
+		const { clientWidth: w, clientHeight: h } = canvas_container;
+		const DPR = window.devicePixelRatio || 1;
+		const pixW = Math.floor(w * DPR);
+		const pixH = Math.floor(h * DPR);
+
+		if (canvas_static.width !== pixW || canvas_static.height !== pixH) {
 			// redraw only when size changed
-			canvas_static.width  = w;
-			canvas_static.height = h;
+			canvas_static.width  = pixW;
+			canvas_static.height = pixH;
 			drawScale();
 		}
 
-		canvas_dynamic.width = w;
-		canvas_dynamic.height = h;
-		ctx_dynamic.clearRect(0, 0, w, h);
+		canvas_dynamic.width = pixW;
+		canvas_dynamic.height = pixH;
+		ctx_dynamic.clearRect(0, 0, pixW, pixH);
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
@@ -322,6 +363,7 @@
 			}
 		};
 	}
+	let containerRO: ResizeObserver;
 
 	// onMount logic
 	onMount(async () => {
@@ -336,11 +378,15 @@
 			return;
 		}
 
-		/* 2. set up sizing immediately + on resize                */
-		window.addEventListener('resize', resizeCanvas, { passive: true });
+		// this should work on mobile too
 		resizeCanvas();
+		containerRO = new ResizeObserver(() => resizeCanvas());
+		containerRO.observe(canvas_container);
 
-		/* 3. load WebAssembly + start microphone & pitch loop */
+		// fall back on window resize/orientation just in case
+		window.addEventListener('resize', resizeCanvas, { passive: true });
+
+		// load WebAssembly + start microphone & pitch loop
 		await loadWasm();
 		await run();
 	});
