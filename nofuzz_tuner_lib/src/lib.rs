@@ -219,7 +219,7 @@ impl Biquad {
         }
     }
 
-    /// Low-pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
+    // /// Low-pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
     // pub fn new_lowpass(fs: f64, fc: f64, q: f64) -> Self {
     //     let w0    = 2.0 * PI * fc / fs;
     //     let alpha = w0.sin() / (2.0 * q);
@@ -906,7 +906,7 @@ mod tests {
         } else {
             samples
         };
-        return mono_samples;
+        mono_samples
     }
 
     fn wav_get_sample_rate(path: &str) -> u32 {
