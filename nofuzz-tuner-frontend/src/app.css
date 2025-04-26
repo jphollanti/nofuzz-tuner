@@ -23,7 +23,9 @@ html, body {
 }
 
 :global(html, body) {
-	overscroll-behavior-y: contain;   /* blocks the “pull to refresh” bounce */
+    margin: 0;
+    height: 100%;
+    overflow: hidden;              /* lock page scrolling */
 }
 
 body {

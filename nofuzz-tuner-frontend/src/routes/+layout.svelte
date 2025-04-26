@@ -59,11 +59,13 @@
 
 <style>
 	:global(.app) {
+		height: 100svh;                /* safe on load */
 		display: flex;
 		flex-direction: column;
-		min-height: 100svh;   /* safe on load */
 	}
-
+	@supports (height: 100dvh) {     /* modern browsers track URL-bar hide/show */
+		:global(.app) { height: 100dvh; }
+	}
 	/* Chrome/Safari/Firefox modern override */
 	@supports (height: 100dvh) {
 		:global(.app) { min-height: 100dvh; }   /* tracks URL-bar hide/show */
@@ -71,6 +73,7 @@
 
 	main {
 		flex: 1;
+		flex: 1 0 auto;
 		display: flex;
 		flex-direction: column;
 		box-sizing: border-box;
