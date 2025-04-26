@@ -219,6 +219,38 @@ impl Biquad {
         }
     }
 
+    /// Low-pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
+    // pub fn new_lowpass(fs: f64, fc: f64, q: f64) -> Self {
+    //     let w0    = 2.0 * PI * fc / fs;
+    //     let alpha = w0.sin() / (2.0 * q);
+    //     let cosw0 = w0.cos();
+
+    //     // LP numerator (b0,b1,b2), HP is ((1+cos)/2, -(1+cos), (1+cos)/2)
+    //     let (b0, b1, b2) = (
+    //         (1.0 - cosw0) / 2.0,
+    //         1.0 - cosw0,
+    //         (1.0 - cosw0) / 2.0,
+    //     );
+    //     // denominator is the same form for all biquads
+    //     let (a0, a1, a2) = (
+    //         1.0 + alpha,
+    //     -2.0 * cosw0,
+    //         1.0 - alpha,
+    //     );
+
+    //     Biquad {
+    //         b0: b0 / a0,
+    //         b1: b1 / a0,
+    //         b2: b2 / a0,
+    //         a1: a1 / a0,
+    //         a2: a2 / a0,
+    //         x1: 0.0,
+    //         x2: 0.0,
+    //         y1: 0.0,
+    //         y2: 0.0,
+    //     }
+    // }
+
     /// Notch (aka band‑stop) @ `fc` (Hz) with quality `Q` (narrow notch if Q large)
     fn new_notch(fs: f64, fc: f64, q: f64) -> Self {
         let w0 = 2.0 * PI * fc / fs;
@@ -258,6 +290,39 @@ impl Biquad {
     }
 }
 
+// Post pitch‑detection processing
+// Seems to be more trouble than worth, especially with Yin
+// fn octave_guard(
+//     raw_freq: f64,
+//     freq_min: f64,
+//     freq_max: f64,
+//     tuning: &str,
+// ) -> Option<(f64, String, f64 /*note Hz*/, f64 /*dist*/)> {
+//     // octave-error guard
+//     // examine f/2, f, f*2  (add more powers of two if you ever need them)
+//     let mut best: Option<(f64, String, f64 /*note Hz*/, f64 /*dist*/)> = None;
+
+//     // how many octaves can fit between fmin and fmax?
+//     let oct_down = (raw_freq / freq_min as f64).log2().floor() as i32;
+//     let oct_up = (freq_max as f64 / raw_freq).log2().floor() as i32;
+
+//     for k in -oct_down..=oct_up {
+//         // e.g. −2…+2
+//         let cand = raw_freq * 2f64.powi(k);
+//         if let Some((note, note_freq, dist)) = find_closest_note(cand, tuning) {
+//             let cand_score = (dist.abs(), cand);
+//             let is_better = best
+//                 .as_ref()
+//                 .map_or(true, |b| cand_score < (b.3.abs(), b.0));
+
+//             if is_better {
+//                 best = Some((cand, note, note_freq, dist));
+//             }
+//         }
+//     }
+//     best
+// }
+
 #[wasm_bindgen]
 pub struct YinPitchDetector {
     yin: yin::Yin,
@@ -268,6 +333,8 @@ pub struct YinPitchDetector {
     // Below that lives rumble—from laptop fans, room resonance, mic handling
     // noise—that can confuse autocorrelation or YIN.
     highpass: Biquad,
+
+    // lowpass: Biquad,
 
     // Filter out mains‑hum in Europe (50 Hz) and US (60 Hz).
     // Quiet-but-pervasive buzz you hear when your audio gear picks up the AC power signal
@@ -288,6 +355,10 @@ pub struct YinPitchDetector {
     notch60: Biquad,
     notch100: Biquad,
     notch120: Biquad,
+    // freq_min: f64,
+    // freq_max: f64,
+
+    // noise_gate_threshold: f64,
 }
 
 #[wasm_bindgen]
@@ -299,20 +370,26 @@ impl YinPitchDetector {
         freq_max: f64,
         sample_rate: usize,
     ) -> YinPitchDetector {
-        let highpass = Biquad::new_highpass(sample_rate as f64, 70.0, 0.707);
+        let q = 0.707; // classic Butterworth
+        let highpass = Biquad::new_highpass(sample_rate as f64, 70.0, q);
         let notch50 = Biquad::new_notch(sample_rate as f64, 50.0, 30.0);
         let notch60 = Biquad::new_notch(sample_rate as f64, 60.0, 30.0);
         let notch100 = Biquad::new_notch(sample_rate as f64, 100.0, 30.0);
         let notch120 = Biquad::new_notch(sample_rate as f64, 120.0, 30.0);
+        // let lowpass = Biquad::new_lowpass(sample_rate as f64, 5_000.0, q);
 
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
         YinPitchDetector {
             yin,
             highpass,
+            // lowpass,
             notch50,
             notch60,
             notch100,
             notch120,
+            // freq_min,
+            // freq_max,
+            // noise_gate_threshold: 0.01,
         }
     }
 
@@ -344,7 +421,14 @@ impl PitchFindTrait for YinPitchDetector {
             *sample = self.notch60.process(*sample);
             *sample = self.notch100.process(*sample);
             *sample = self.notch120.process(*sample);
+            //*sample = self.lowpass.process(*sample);
         }
+
+        // simple RMS noise gate
+        // let rms = (buf.iter().map(|s| s*s).sum::<f64>() / buf.len() as f64).sqrt();
+        // if rms < self.noise_gate_threshold {
+        //     return None;  // too quiet → probably just hiss
+        // }
 
         let freq = self.yin.estimate_freq(&buf);
         if freq != f64::INFINITY {
@@ -361,6 +445,41 @@ impl PitchFindTrait for YinPitchDetector {
             ));
         }
         None
+
+        // let do_octave_guard = false;
+        // if do_octave_guard {
+        //     // octave-error guard
+        //     octave_guard(raw_freq, self.freq_min, self.freq_max, tuning).and_then(
+        //         |(freq, note, note_freq, distance)| {
+        //             const MAX_CENTS: f64 = 30.0;
+        //             let cents = 1200.0 * (freq / note_freq).log2();
+        //             if cents.abs() > MAX_CENTS {
+        //                 None
+        //             } else {
+        //                 Some(PitchResult::new(
+        //                     freq,
+        //                     tuning.to_string(),
+        //                     note,
+        //                     note_freq,
+        //                     distance,
+        //                     cents,
+        //                 ))
+        //             }
+        //         },
+        //     )
+        // } else {
+        //     let (closest_note, closest_freq, distance) =
+        //         find_closest_note(raw_freq, tuning).unwrap();
+        //     let cents = 1200.0 * (raw_freq / closest_freq).log2();
+        //     return Some(PitchResult::new(
+        //         raw_freq,
+        //         tuning.to_string(),
+        //         closest_note,
+        //         closest_freq,
+        //         distance,
+        //         cents,
+        //     ));
+        // }
     }
 }
 
@@ -840,7 +959,7 @@ mod tests {
         let sr: u32 = m4a_get_sample_rate(file);
         assert_eq!(sr, 48_000);
         let samples = read_m4a_as_f32(file);
-        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E2");
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E2", 4);
     }
 
     #[test]
@@ -849,15 +968,52 @@ mod tests {
         let sr: u32 = m4a_get_sample_rate(file);
         assert_eq!(sr, 48_000);
         let samples = read_m4a_as_f32(file);
-        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2");
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2", 4);
     }
 
+    #[test]
+    fn test_recorded_yin_standard_g3() {
+        let file: &str = "test_assets/G3_22.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "G3", 1);
+    }
+
+    #[test]
+    fn test_recorded_yin_standard_b3() {
+        let file: &str = "test_assets/B_2.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "B3", 1);
+    }
+
+    // low audio, doesn't work properly at least yet
     // #[test]
-    // fn test_recorded_yin_standard_d3() {
-    //     let file: &str = "test_assets/D.m4a";
+    // fn test_recorded_yin_standard_e4() {
+    //     let file: &str = "test_assets/E4.m4a";
     //     let sr: u32 = m4a_get_sample_rate(file);
     //     assert_eq!(sr, 48_000);
     //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E4", 1);
+    // }
+
+    #[test]
+    fn test_recorded_yin_standard_e4_b() {
+        let file: &str = "test_assets/E4_2.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E4", 1);
+    }
+
+    // #[test]
+    // fn yin_tracks_d3_from_wav() {
+    //     // The asset lives in tests/assets so `cargo test` finds it in any cwd.
+    //     let path = "test_assets/D3.wav";
+
+    //     let (samples, sr) = read_wav_as_f32_2(path);
     //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "D3");
     // }
 
@@ -885,6 +1041,24 @@ mod tests {
     //     let sr: u32 = m4a_get_sample_rate(file);
     //     assert_eq!(sr, 48_000);
     //     let samples = read_m4a_as_f32(file);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E4");
+    // }
+
+    // #[test]
+    // fn yin_tracks_g3_from_wav() {
+    //     // The asset lives in tests/assets so `cargo test` finds it in any cwd.
+    //     let path = "test_assets/G3.wav";
+
+    //     let (samples, sr) = read_wav_as_f32_2(path);
+    //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "G3");
+    // }
+
+    // #[test]
+    // fn yin_tracks_e3_from_wav() {
+    //     // The asset lives in tests/assets so `cargo test` finds it in any cwd.
+    //     let path = "test_assets/E4.wav";
+
+    //     let (samples, sr) = read_wav_as_f32_2(path);
     //     yin_find_note_from_samples(&samples, sr as usize, "standard-e", "E4");
     // }
 
@@ -924,7 +1098,13 @@ mod tests {
     ///
     /// Together these checks act as a regression test for the Yin wrapper as well
     /// as for the entire decoding + normalisation pipeline.
-    fn yin_find_note_from_samples(samples: &[f32], sample_rate: usize, tuning: &str, note: &str) {
+    fn yin_find_note_from_samples(
+        samples: &[f32],
+        sample_rate: usize,
+        tuning: &str,
+        note: &str,
+        fraction_to_check: usize,
+    ) {
         let mut yin = YinPitchDetector::new(
             0.15,  // threshold
             60.0,  // min frequency
@@ -937,7 +1117,7 @@ mod tests {
         let mut picked_up_something = false;
         let mut picked_up_correct_note = 0;
         let mut picked_up_wrong_note = 0;
-        let process_until = samples.len() / 4 - frame_size; // we don't need to go through the whole file
+        let process_until = samples.len() / fraction_to_check - frame_size; // we don't need to go through the whole file
         let mut counter = 0;
         for i in (0..process_until).step_by(hop_size) {
             let frame = &samples[i..i + frame_size];
