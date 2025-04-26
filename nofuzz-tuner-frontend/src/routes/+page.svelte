@@ -70,7 +70,7 @@
 		const drawScaleYMin = scaleY - (height * .20);
 		const drawScaleYMax = scaleY + (height * .20);
 
-		const lineWidth = 2; //(height * .012);
+		const lineWidth = 2 * DPR; //(height * .012);
 
 		// draw center line
 		ctx.beginPath();
@@ -81,7 +81,7 @@
 		ctx.stroke();
 
 		// circle
-		const radius = 40;
+		const radius = 40 * DPR;
 		const centerY = drawScaleYMin - radius;
 		ctx.beginPath();
 		ctx.strokeStyle = '#FFFFFF';
@@ -90,8 +90,8 @@
 		ctx.stroke();
 
 		// Triangle (nudge) at the bottom of the circle
-		const triHeight = 12;           // how tall your nudge is
-		const triWidth  = 12;           // how wide its base is
+		const triHeight = 12 * DPR;           // how tall your nudge is
+		const triWidth  = 12 * DPR;           // how wide its base is
 		const baseY     = centerY + radius;  // sits flush on the circle’s bottom
 
 		ctx.beginPath();
@@ -130,14 +130,14 @@
 		const scaleY = height / 2; // Vertical position of the scale
 		const centerX = (endX - startX) / 2;
 		const drawScaleYMin = scaleY - (height * .20);
-		const radius = 40;
+		const radius = 40 * DPR;
 		const centerY = drawScaleYMin - radius;
 
 		// labels
 		const noteLabel = tuningTo.note;
-		const label2 = `${tuningTo.freq} Hz`;
+		// const label2 = `${tuningTo.freq} Hz`;
 
-		const fontSize = 24;
+		const fontSize = 24 * DPR;
 		const fontWeight = 'bold';
 		ctx.font = `${fontWeight} ${fontSize}px Arial`;
 		ctx.fillStyle = 'white';
@@ -229,7 +229,9 @@
 		ctx.stroke();
 
 		const label = value.toFixed(1) + " Hz";
-		ctx.font = '12px Arial';
+		
+		const fontSizeLabel = 12 * DPR;
+		ctx.font = `${fontSizeLabel}px Arial`;
 		ctx.fillStyle = 'white';
 		ctx.textAlign = 'center';
 		let labelX = indicatorX;
@@ -255,33 +257,6 @@
 			return;
 		}
 
-		// const cssW = canvas_container.clientWidth;
-		// const cssH = canvas_container.clientHeight;
-		
-
-		// // physical pixels (keeps things sharp)
-
-		// // resize only if the buffer actually changed
-		// if (canvas_static.width !== pixW || canvas_static.height !== pixH) {
-		// 	[canvas_static, canvas_dynamic].forEach(c => {
-		// 		c.width  = pixW;
-		// 		c.height = pixH;
-		// 	});
-
-		// 	// scale contexts so you can keep using CSS pixels in draw code
-		// 	[ctx_static, ctx_dynamic].forEach(ctx => {
-		// 		if (ctx) ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-		// 	});
-
-		// 	drawScale(); // static redraw
-		// }
-
-		// // keep CSS size at 100 % of the container
-		// canvas_static .style.width =
-		// canvas_dynamic.style.width = cssW + 'px';
-		// canvas_static .style.height =
-		// canvas_dynamic.style.height = cssH + 'px';
-
 		const { clientWidth: w, clientHeight: h } = canvas_container;
 		const DPR = window.devicePixelRatio || 1;
 		const pixW = Math.floor(w * DPR);
@@ -300,7 +275,7 @@
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
-		drawIndicator(tuningTo, 94.31);
+		drawIndicator(tuningTo, 84.31);
 	}
 
 	async function loadWasm() {
