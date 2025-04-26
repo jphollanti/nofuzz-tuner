@@ -447,19 +447,26 @@
 </button>
 
 <style>
+	html, body {
+		margin: 0;
+		height: 100%;
+		overflow: hidden;
+	}
+
 	#controls-container {
 		position: fixed;
+		bottom: calc(5% + env(safe-area-inset-bottom)); /* avoids the home bar */
 		width: 100%;
-		bottom: 5%;
 		display: flex;
 		justify-content: center;
-		align-items: center;
 	}
+	
 	#controls {
 		padding: 10px;
 		background-color: rgba(99, 99, 99, 0.5);
 		color: white;
 	}
+	
 	button {
 		background-color: #1F1F1F;
 		color: #E0E0E0;
@@ -470,9 +477,10 @@
 		display: block;
 		float: left;
 	}
+
 	section {
 		/* give it room to center inside */
-		min-height: 100vh;
+		height: 100svh;
 
 		display: flex;
 		flex-direction: column;
