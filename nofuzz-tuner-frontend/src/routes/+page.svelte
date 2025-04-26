@@ -525,29 +525,38 @@
 		font-size: 0.9rem;
 	}
 
+	/* 1. Reset browser chrome so we know what we’re styling */
 	.tuning-select {
-		margin-top: 0.25rem;
-		width: 100%;
-		text-align: center;
-		font-size: 1rem;
-		padding: 0.5rem 0.5rem;
+		/* preserve your look */
+		font: inherit;
+		padding: 0.45rem 2.2rem 0.45rem 0.6rem;  /* extra space on the right */
 		color: var(--fg);
 		background: var(--bg);
 		border: 1px solid var(--border);
 		border-radius: 0.375rem;
+		cursor: pointer;
 		transition: border 0.2s, box-shadow 0.2s;
+
+		/* kill native arrow everywhere */
+		appearance: none;          /* modern */
+		-webkit-appearance: none;  /* Safari */
 	}
 
+	/* Add a lightweight SVG arrow as a background image */
+	.tuning-select {
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%23aaa' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.7rem center;
+		background-size: 0.65rem;
+	}
+
+	/* focus & disabled tweaks */
 	.tuning-select:focus {
 		outline: none;
 		border-color: var(--accent);
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent);
 	}
 
-	/* optional hover & disabled tweaks */
-	.tuning-select:hover {
-		border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-	}
 	.tuning-select:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
