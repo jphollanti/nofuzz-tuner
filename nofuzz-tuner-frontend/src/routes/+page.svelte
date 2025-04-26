@@ -122,8 +122,8 @@
 		const pixH = Math.floor(h * DPR);
 
 		// Set canvas dimensions
-		const width = canvas.width;
-		const height = canvas.height;
+		const width = pixW;
+		const height = pixH;
 
 		const startX = 0; // Starting X position of the scale
 		const endX = width; // Ending X position of the scale
