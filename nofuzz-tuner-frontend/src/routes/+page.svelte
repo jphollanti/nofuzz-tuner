@@ -483,8 +483,14 @@
 	#canvas_container {
 		/* 80 % of the viewport width, 60 % of the viewport height */
 		width: 80vw;
-		height: 60vh;
+		height: 60svh;   /* ≈ “safe”, never pushes off-screen */
 		position: relative;
+	}
+
+	@supports (height: 100dvh) {     /* Chrome / Safari ≥108, Firefox 113+ */
+		#canvas_container {
+			height: 60dvh;               /* tracks address-bar show/hide */
+		}
 	}
 
 	/* Make both canvases fill—and overlap—the container */
