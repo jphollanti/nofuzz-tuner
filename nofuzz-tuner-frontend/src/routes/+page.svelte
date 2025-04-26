@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { env as PUBLIC } from '$env/dynamic/public';
-	import { fade } from 'svelte/transition';
+	import { draw, fade } from 'svelte/transition';
 	import workletURL from '$lib/audio/pitch-worklet.js?url'; 
 	
 	const buildVersion =
@@ -20,46 +20,37 @@
 
 	export let tuning: string = tunings[0].id;
 
-	
-   	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 
 	let YinPitchDetector: any;
 
-	let canvas: HTMLCanvasElement | null = null;
-	let ctx: CanvasRenderingContext2D | null = null;
+	let canvas_container: HTMLDivElement | null = null;
+
+	let canvas_static: HTMLCanvasElement | null = null;
+	let ctx_static: CanvasRenderingContext2D | null = null;
+	let canvas_dynamic: HTMLCanvasElement | null = null;
+	let ctx_dynamic: CanvasRenderingContext2D | null = null;
 
 	let audioContext: AudioContext | null = null;
 	let workletNode: AudioWorkletNode | null = null;
 	let input: MediaStreamAudioSourceNode | null = null;
 
-	interface GuitarString {
-		name: string;
-		frequency: number;
-		range?: { min: number; max: number };
-	}
-	const strings: GuitarString[] = [
-		{ name: 'E2', frequency: 82.41 },
-		{ name: 'A2', frequency: 110.00 },
-		{ name: 'D3', frequency: 146.83 },
-		{ name: 'G3', frequency: 196.00 },
-		{ name: 'B3', frequency: 246.94 },
-		{ name: 'E4', frequency: 329.63 }
-	];
-	
 	function resetCanvas() {
-		if (!ctx || !canvas) {
+		if (!ctx_dynamic || !canvas_dynamic) {
 			console.error('Canvas or context not found');
 			return;
 		}
-		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		ctx_dynamic.clearRect(0, 0, canvas_dynamic.width, canvas_dynamic.height);
 	}
 
-	function drawScale(tuningTo:any | null) {
-		if (!canvas || !ctx) {
+	function drawScale() {
+		if (!canvas_static || !ctx_static) {
 			console.error('Canvas or context not found');
 			return;
 		}
+		const canvas = canvas_static;
+		const ctx = ctx_static;
 		// Set canvas dimensions
 		const width = canvas.width;
 		const height = canvas.height;
@@ -73,30 +64,51 @@
 		const drawScaleYMin = scaleY - (height * .20);
 		const drawScaleYMax = scaleY + (height * .20);
 
+		const lineWidth = 2; //(height * .012);
+
 		// draw center line
 		ctx.beginPath();
 		ctx.strokeStyle = '#FFFFFF';
-		ctx.lineWidth = (height * .012);
+		ctx.lineWidth = lineWidth;
 		ctx.moveTo(centerX, drawScaleYMin); // Start above the main line
 		ctx.lineTo(centerX, drawScaleYMax); // End below the main line
 		ctx.stroke();
 
-		const label = "Tuning to string: " + tuningTo.note;
-		const label2 = `${tuningTo.freq} Hz`;
+		// circle
+		const radius = 40;
+		const centerY = drawScaleYMin - radius;
+		ctx.beginPath();
+		ctx.strokeStyle = '#FFFFFF';
+		ctx.lineWidth = lineWidth*2;
+		ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+		ctx.stroke();
 
-		ctx.font = '12px Arial';
-		ctx.fillStyle = 'white';
-		ctx.textAlign = 'center';
-		ctx.fillText(label, centerX, scaleY - (height * .30)); // Label below the tick
-		ctx.fillText(label2, centerX, scaleY + (height * .30)); // Label below the tick
+		// Triangle (nudge) at the bottom of the circle
+		const triHeight = 12;           // how tall your nudge is
+		const triWidth  = 12;           // how wide its base is
+		const baseY     = centerY + radius;  // sits flush on the circle’s bottom
+
+		ctx.beginPath();
+		ctx.moveTo(centerX - triWidth/2, baseY);      // bottom-left of circle
+		ctx.lineTo(centerX + triWidth/2, baseY);      // bottom-right of circle
+		ctx.lineTo(centerX,            baseY + triHeight); // pointy tip
+		ctx.closePath();
+
+		ctx.fillStyle = '#FFFFFF';
+		ctx.fill();
+		ctx.strokeStyle = '#FFFFFF';
+		ctx.stroke();
 	}
 	
 	// Function to draw the indicator at a specific value
 	function drawIndicator(tuningTo:any | null, value:number) {
-		if (!canvas || !ctx) {
+		if (!canvas_dynamic || !ctx_dynamic) {
 			console.error('Canvas or context not found');
 			return;
 		}
+
+		const canvas = canvas_dynamic;
+		const ctx = ctx_dynamic;
 
 		// Set canvas dimensions
 		const width = canvas.width;
@@ -106,6 +118,30 @@
 		const endX = canvas.clientWidth; // Ending X position of the scale
 		const scaleY = height / 2; // Vertical position of the scale
 		const centerX = (endX - startX) / 2;
+		const drawScaleYMin = scaleY - (height * .20);
+		const radius = 40;
+		const centerY = drawScaleYMin - radius;
+
+		// labels
+		const noteLabel = tuningTo.note;
+		const label2 = `${tuningTo.freq} Hz`;
+
+		const fontSize = 24;
+		const fontWeight = 'bold';
+		ctx.font = `${fontWeight} ${fontSize}px Arial`;
+		ctx.fillStyle = 'white';
+		ctx.textAlign = 'center';
+		//ctx.textBaseline = 'middle';
+
+		const metrics = ctx.measureText(noteLabel);
+		const ascent  = metrics.actualBoundingBoxAscent;
+		const descent = metrics.actualBoundingBoxDescent;
+		const yOffset = (ascent - descent) / 2;
+
+		ctx.textBaseline = 'alphabetic';
+		ctx.fillText(noteLabel, centerX, centerY + yOffset); // Label below the tick
+		//ctx.fillText(label2, centerX, scaleY + (height * .30)); // Label below the tick
+
 
 		let indicatorX = centerX;
 		let rangeMin = tuningTo.freq - 10;
@@ -202,27 +238,27 @@
 		ctx.fillText(label, labelX, scaleY + (height * .13));
 
 	}
-
 	function resizeCanvas() {
-		if (!canvas) {
-			console.error('Canvas not found');
+		if (!canvas_container || !canvas_static || !canvas_dynamic || !ctx_static || !ctx_dynamic) {
+			console.error("missing DOM refs");
 			return;
 		}
-		canvas.width = window.innerWidth * 0.8;
-		canvas.height = window.innerHeight * 0.8;
 
-		// Redraw or update your canvas content here if necessary
-		//const context = canvas.getContext('2d');
-		// Example: Fill the canvas with a color
-		//context.fillStyle = '#f0f0f0';
-		//context.fillRect(0, 0, canvas.width, canvas.height);
+		const { clientWidth: w, clientHeight: h } = canvas_container;
 
-		// testing 
-		let tuningTo = {
-			note: 'E2',
-			freq: 82.41,
+		if (canvas_static.width !== w || canvas_static.height !== h) {
+			// redraw only when size changed
+			canvas_static.width  = w;
+			canvas_static.height = h;
+			drawScale();
 		}
-		drawScale(tuningTo);
+
+		canvas_dynamic.width = w;
+		canvas_dynamic.height = h;
+		ctx_dynamic.clearRect(0, 0, w, h);
+
+		// Testing
+		const tuningTo = { note: 'E2', freq: 82.41 };
 		drawIndicator(tuningTo, 94.31);
 	}
 
@@ -280,59 +316,52 @@
 				if (pitch) {
 					const tuningTo = pitch.tuningTo;
 					resetCanvas();
-					drawScale(tuningTo);
+					//drawScale(tuningTo);
 					drawIndicator(tuningTo, pitch.freq);
 				}
 			}
 		};
 	}
 
-	// onMount logic, resizeCanvas, draw helpers – unchanged
-	onMount(() => {
-		loadWasm();
+	// onMount logic
+	onMount(async () => {
+		canvas_container = document.getElementById('canvas_container') as HTMLDivElement;
+		canvas_static = document.getElementById('canvas_static')  as HTMLCanvasElement;
+		ctx_static = canvas_static?.getContext('2d') ?? null;
+		canvas_dynamic = document.getElementById('canvas_dynamic') as HTMLCanvasElement;
+		ctx_dynamic = canvas_dynamic?.getContext('2d') ?? null;
 
-		const startButton = document.getElementById('start') as HTMLButtonElement;
-		const stopButton = document.getElementById('stop') as HTMLButtonElement;
+		if (!canvas_static || !ctx_static || !canvas_dynamic || !ctx_dynamic) {
+			console.error('Canvas elements not found');
+			return;
+		}
 
-		stopButton.disabled = true;
-
-		startButton.onclick = async () => {
-			startButton.disabled = true;
-			stopButton.disabled = false;
-			await run();
-		};
-
-		stopButton.onclick = () => {
-			startButton.disabled = false;
-			stopButton.disabled = true;
-			workletNode?.disconnect();
-			input?.disconnect();
-			audioContext?.close();
-		};
-
-		canvas = document.getElementById('linearScale') as HTMLCanvasElement;
-		ctx = canvas?.getContext('2d') ?? null;
-		window.addEventListener('load', resizeCanvas);
-		window.addEventListener('resize', resizeCanvas);
+		/* 2. set up sizing immediately + on resize                */
+		window.addEventListener('resize', resizeCanvas, { passive: true });
 		resizeCanvas();
+
+		/* 3. load WebAssembly + start microphone & pitch loop */
+		await loadWasm();
+		await run();
+	});
+
+	// tidy up if the component unmounts 
+	onDestroy(() => {
+		workletNode?.disconnect();
+		input?.disconnect();
+		audioContext?.close();
 	});
 </script>
 
 <svelte:head>
-	<title>Home</title>
-	<meta name="description" content="Svelte demo app" />
+	<title>No-Fuzz Tuner</title>
+	<meta name="description" content="Guitar Tuner - Browser-Based &amp; Free - No-Fuzz" />
 </svelte:head>
 
 <section>
-	<h1>NoFuzz Tuner</h1>
-
     <div id="controls-container">
         <div id="controls">
-            <button id="start">Start</button>
-            <button id="stop">Stop</button>
-
 			<label class="tuning-label">
-				<p>&nbsp;</p>
 				Choose tuning
 				<select
 					class="tuning-select"
@@ -344,7 +373,10 @@
 			</label>
 		</div>
     </div>
-    <canvas id="linearScale"></canvas>
+	<div id="canvas_container">
+		<canvas id="canvas_static"></canvas>
+		<canvas id="canvas_dynamic"></canvas>
+	</div>
 </section>
 
 <button
@@ -369,12 +401,6 @@
 </button>
 
 <style>
-	canvas {
-		display: block; /* Removes unwanted scrollbars */
-		width: 80%;
-		height: 80%;
-		margin: 0 10%;
-	}
 	#controls-container {
 		position: fixed;
 		width: 100%;
@@ -398,36 +424,33 @@
 		display: block;
 		float: left;
 	}
-	button#start {
-		background-color: #4CAF50;
-	}
-
-	button#stop {
-		background-color: #FF4C4C;
-	}
-
-	button#start:hover, button#stop:hover {
-		background-color: #333333;
-	}
-
-	button#stop:disabled,
-	button#start:disabled {
-		background-color: #333333;
-		cursor: not-allowed;
-		color: #1E1E1E;
-	}
 	section {
+		/* give it room to center inside */
+		min-height: 100vh;
+
 		display: flex;
 		flex-direction: column;
-		justify-content: center;
+		justify-content: center; /* center vertically */
 		align-items: center;
-		flex: 0.6;
 	}
 
-	h1 {
-		width: 100%;
+	#canvas_container {
+		/* 80 % of the viewport width, 60 % of the viewport height */
+		width: 80vw;
+		height: 60vh;
+		position: relative;
 	}
-	
+
+	/* Make both canvases fill—and overlap—the container */
+	#canvas_container canvas {
+		position: absolute;
+		inset: 0; /* top:0; right:0; bottom:0; left:0; */
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+
+
 	/* anchor button ----------------------------------- */
 	.info-btn {
 		position: fixed;
