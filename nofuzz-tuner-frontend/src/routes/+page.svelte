@@ -383,7 +383,6 @@
     <div id="controls-container">
         <div id="controls">
 			<label class="tuning-label">
-				Choose tuning
 				<select
 					class="tuning-select"
 					bind:value={tuning}>
@@ -422,31 +421,6 @@
 </button>
 
 <style>
-	#controls-container {
-		position: fixed;
-		bottom: calc(5% + env(safe-area-inset-bottom)); /* avoids the home bar */
-		width: 100%;
-		display: flex;
-		justify-content: center;
-	}
-	
-	#controls {
-		padding: 10px;
-		background-color: rgba(99, 99, 99, 0.5);
-		color: white;
-	}
-	
-	button {
-		background-color: #1F1F1F;
-		color: #E0E0E0;
-		border: none;
-		padding: 10px 20px;
-		cursor: pointer;
-		width: 50%;
-		display: block;
-		float: left;
-	}
-
 	section {
 		/* give it room to center inside */
 		height: 100svh;
@@ -531,6 +505,20 @@
 
 	/* tuning select */
 	/* ---------- Component styles ---------- */
+
+	#controls-container {
+		position: fixed;
+		bottom: calc(5% + env(safe-area-inset-bottom)); /* avoids the home bar */
+		width: 100%;
+		display: flex;
+		justify-content: center;
+	}
+	
+	#controls {
+		padding: 5px;
+		background-color: var(--bg);
+	}
+	
 	.tuning-label {
 		display: block;
 		color: var(--fg);
@@ -540,8 +528,9 @@
 	.tuning-select {
 		margin-top: 0.25rem;
 		width: 100%;
+		text-align: center;
 		font-size: 1rem;
-		padding: 0.45rem 0.6rem;
+		padding: 0.5rem 0.5rem;
 		color: var(--fg);
 		background: var(--bg);
 		border: 1px solid var(--border);
