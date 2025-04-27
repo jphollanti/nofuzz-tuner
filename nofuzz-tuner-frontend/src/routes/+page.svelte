@@ -243,9 +243,24 @@
 		await pkg.default();
 		YinPitchDetector = pkg.YinPitchDetector;
 	}
+	async function unlockAudio(ctx: AudioContext | null) {
+		if (!ctx) return;                 // guard
+		if (ctx.state === 'suspended') {
+			try { await ctx.resume(); } catch {/* ignore */}
+		}
 
-	async function run() {		
+		/* ✨ Re-assign (even to the same object) to trigger an update */
+		audioContext = ctx;
+	}
+
+	async function run() {
 		audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+		/* listen once for any tap/click/keydown */
+		['click', 'touchstart', 'keydown'].forEach(evt =>
+			window.addEventListener(evt, () => unlockAudio(audioContext!), { once: true, passive: true })
+		);
+		await audioContext.resume();
 		await audioContext.audioWorklet.addModule(workletURL);
 
 		const sr = audioContext.sampleRate; 
@@ -284,16 +299,23 @@
 			buf.set(chunk, write);
 			write = (write + quantum) % BLOCK;
 			filled += quantum;
+			/** signed cents between a measured freq and the target note freq */
+			const centsDiff = (freq: number, target: number) =>
+				1200 * Math.log2(freq / target);          // + = sharp, – = flat
 
 			if (filled >= BLOCK) {
 				filled = 0; // buffer ready
 				const pitch = detector.maybe_find_pitch_js(buf, tuning);
 				if (pitch) {
-					const tuningTo = pitch.tuningTo;
+					const tuningTo = pitch.tuningTo;        // { note, freq }
+					const cents =
+						typeof pitch.cents === 'number'
+						? pitch.cents                      // detector provides it
+						: centsDiff(pitch.freq, tuningTo.freq);  // fallback
+
 					resetCanvas();
-					//drawScale(tuningTo);
-					console.log(pitch);
-					drawIndicator(tuningTo, pitch.cents);
+					//console.log(pitch);
+					drawIndicator(tuningTo, cents);
 				}
 			}
 		};
@@ -340,6 +362,17 @@
 </svelte:head>
 
 <section>
+	{#if audioContext && audioContext.state === 'suspended'}
+		<div
+			class="start-overlay"
+			role="button"
+			tabindex="0"
+			on:click={() => unlockAudio(audioContext)}
+			on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && unlockAudio(audioContext)}
+		>
+			Tap or press ⏎ to start tuner
+		</div>
+	{/if}
     <div id="controls-container">
         <div id="controls">
 			<label class="tuning-label">
@@ -483,6 +516,17 @@
 		display: block;
 		color: var(--fg);
 		font-size: 0.9rem;
+	}
+
+	.start-overlay {
+		position: fixed;
+		inset: 0;
+		display: grid;
+		place-content: center;
+		background:#000c;
+		color:#fff;
+		font: 1.2rem/1 system-ui;
+		z-index: 10000;
 	}
 
 	/* 1. Reset browser chrome so we know what we’re styling */
