@@ -299,22 +299,23 @@
 			buf.set(chunk, write);
 			write = (write + quantum) % BLOCK;
 			filled += quantum;
-			/** signed cents between a measured freq and the target note freq */
-			const centsDiff = (freq: number, target: number) =>
-				1200 * Math.log2(freq / target);          // + = sharp, – = flat
 
 			if (filled >= BLOCK) {
 				filled = 0; // buffer ready
 				const pitch = detector.maybe_find_pitch_js(buf, tuning);
 				if (pitch) {
-					const tuningTo = pitch.tuningTo;        // { note, freq }
-					const cents =
-						typeof pitch.cents === 'number'
-						? pitch.cents                      // detector provides it
-						: centsDiff(pitch.freq, tuningTo.freq);  // fallback
+					const tuningTo = pitch.tuningTo;
+					const cents = tuningTo.cents;
+					// /** signed cents between a measured freq and the target note freq */
+					// const centsDiff = (freq: number, target: number) =>
+					// 	1200 * Math.log2(freq / target);          // + = sharp, – = flat
+					// const cents =
+					// 	typeof pitch.cents === 'number'
+					// 	? pitch.cents                      // detector provides it
+					// 	: centsDiff(pitch.freq, tuningTo.freq);  // fallback
 
 					resetCanvas();
-					//console.log(pitch);
+					console.log(pitch);
 					drawIndicator(tuningTo, cents);
 				}
 			}
