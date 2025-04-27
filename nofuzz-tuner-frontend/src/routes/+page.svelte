@@ -73,8 +73,10 @@
 		const lineWidth = 2 * DPR; //(height * .012);
 
 		// draw center line
+		const scaleColour = getScaleColour();
 		ctx.beginPath();
-		ctx.strokeStyle = '#FFFFFF';
+		ctx.strokeStyle = scaleColour;
+		ctx.fillStyle = scaleColour;
 		ctx.lineWidth = lineWidth;
 		ctx.moveTo(centerX, drawScaleYMin); // Start above the main line
 		ctx.lineTo(centerX, drawScaleYMax); // End below the main line
@@ -84,7 +86,7 @@
 		const radius = 40 * DPR;
 		const centerY = drawScaleYMin - radius;
 		ctx.beginPath();
-		ctx.strokeStyle = '#FFFFFF';
+		ctx.strokeStyle = scaleColour;
 		ctx.lineWidth = lineWidth*2;
 		ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
 		ctx.stroke();
@@ -100,11 +102,16 @@
 		ctx.lineTo(centerX,            baseY + triHeight); // pointy tip
 		ctx.closePath();
 
-		ctx.fillStyle = '#FFFFFF';
+		ctx.fillStyle = scaleColour;
 		ctx.fill();
-		ctx.strokeStyle = '#FFFFFF';
+		ctx.strokeStyle = scaleColour;
 		ctx.stroke();
 	}
+	
+	const getScaleColour = () =>
+		getComputedStyle(document.documentElement)
+			.getPropertyValue('--scale-fg').trim() || '#fff';
+
 	
 	// Function to draw the indicator at a specific value
 	// driven by signed cents (–50 … +50).
@@ -130,7 +137,8 @@
 		let indicatorX = midX + (clampC / range) * midX * sign;
 
 		// Note label
-		const fillStyle = absC <= 2 ? '#4CAF50' : 'white';
+		const NOTE_COLOR = absC <= 2 ? '#4CAF50' : getScaleColour();
+		const fillStyle = NOTE_COLOR;
 		ctx.font = `bold ${24 * DPR}px Arial`;
 		ctx.fillStyle = fillStyle;
 		ctx.textAlign = 'center';
@@ -321,7 +329,9 @@
 			}
 		};
 	}
+
 	let containerRO: ResizeObserver;
+	let themeMQ: MediaQueryList;
 
 	// onMount logic
 	onMount(async () => {
@@ -338,11 +348,20 @@
 
 		// this should work on mobile too
 		resizeCanvas();
+
+		// watch container size changes
 		containerRO = new ResizeObserver(() => resizeCanvas());
 		containerRO.observe(canvas_container);
+		window.addEventListener('resize', resizeCanvas, { passive: true }); // fall back on window resize/orientation just in case
 
-		// fall back on window resize/orientation just in case
-		window.addEventListener('resize', resizeCanvas, { passive: true });
+		// watch OS light/dark toggle
+		themeMQ = window.matchMedia('(prefers-color-scheme: dark)');
+		const handleThemeChange = () => {
+			drawScale(); // repaint static layer in new colours
+			resetCanvas(); // clear dynamic canvas, wait for next audio frame to arrive and redraw
+		};
+		themeMQ.addEventListener('change', handleThemeChange); // modern browsers
+		if (!themeMQ.addEventListener) themeMQ.addListener(handleThemeChange); // legacy Safari / old Edge
 
 		// load WebAssembly + start microphone & pitch loop
 		await loadWasm();
@@ -415,6 +434,7 @@
 </button>
 
 <style>
+
 	section {
 		/* give it room to center inside */
 		height: 100svh;
@@ -487,8 +507,8 @@
 		bottom: 150%;
 		right: 0;
 
-		background: var(--tooltip-bg, #222);
-		color: #fff;
+		background: var(--bg);
+		color: var(--fg);
 		padding: 0.35rem 0.6rem;
 		font: 0.72rem/1 monospace;
 		border-radius: 0.3rem;
@@ -510,7 +530,7 @@
 	
 	#controls {
 		padding: 5px;
-		background-color: var(--bg);
+		background-color: transparent;
 	}
 	
 	.tuning-label {
@@ -524,31 +544,32 @@
 		inset: 0;
 		display: grid;
 		place-content: center;
-		background:#000c;
-		color:#fff;
+		background:var(--bg);
+		color: var(--fg);
 		font: 1.2rem/1 system-ui;
 		z-index: 10000;
 	}
 
 	/* 1. Reset browser chrome so we know what we’re styling */
 	.tuning-select {
-		/* preserve your look */
+		color: var(--fg);                        /* text + caret colour */
 		font: inherit;
-		padding: 0.45rem 2.2rem 0.45rem 0.6rem;  /* extra space on the right */
-		color: var(--fg);
-		background: var(--bg);
-		border: 1px solid var(--border);
-		border-radius: 0.375rem;
+		padding: 0.45rem 2.2rem 0.45rem 0.6rem;  /* room for the caret */
+		background: transparent;
+		border: none;
 		cursor: pointer;
 		transition: border 0.2s, box-shadow 0.2s;
+		text-align: right;
+		text-align-last: right;
+		appearance: none;           /* hide native arrow */
+		-webkit-appearance: none;   /* Safari */
+		position: relative;         /* anchor for ::after */
 
-		text-align: right;          /* Chrome / Safari / Chromium Edge */
-		text-align-last: right;     /* Edge-Legacy, some Blink builds  */
-		padding-right: 2.2rem;      /* keep gap for the SVG arrow */
-
-		/* kill native arrow everywhere */
-		appearance: none;          /* modern */
-		-webkit-appearance: none;  /* Safari */
+		/* override any previous background-image: */
+		background-image: var(--caret-svg);
+		background-repeat: no-repeat;
+		background-position: right 0.7rem center;
+		background-size: 0.65rem;
 	}
 	/* Firefox still ignores text-align on <select>.
 	Trick is: flip writing direction, then flip text back. */
@@ -557,14 +578,6 @@
 			direction: rtl;
 			text-align: left;
 		}
-	}
-
-	/* Add a lightweight SVG arrow as a background image */
-	.tuning-select {
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%23aaa' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
-		background-repeat: no-repeat;
-		background-position: right 0.7rem center;
-		background-size: 0.65rem;
 	}
 
 	/* focus & disabled tweaks */
