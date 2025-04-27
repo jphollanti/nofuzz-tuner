@@ -107,150 +107,109 @@
 	}
 	
 	// Function to draw the indicator at a specific value
-	function drawIndicator(tuningTo:any | null, value:number) {
-		if (!canvas_dynamic || !ctx_dynamic || !canvas_container) {
-			console.error('Canvas or context not found');
-			return;
-		}
+	// driven by signed cents (–50 … +50).
+	function drawIndicator(tuningTo: any, cents: number) {
+		if (!canvas_dynamic || !ctx_dynamic || !canvas_container) return;
 
-		const canvas = canvas_dynamic;
-		const ctx = ctx_dynamic;
-
+		// Helpers
 		const { clientWidth: w, clientHeight: h } = canvas_container;
 		const DPR = window.devicePixelRatio || 1;
-		const pixW = Math.floor(w * DPR);
-		const pixH = Math.floor(h * DPR);
+		const W    = Math.floor(w * DPR);
+		const H    = Math.floor(h * DPR);
 
-		// Set canvas dimensions
-		const width = pixW;
-		const height = pixH;
+		ctx_dynamic.clearRect(0, 0, W, H);
+		const ctx = ctx_dynamic;
 
-		const startX = 0; // Starting X position of the scale
-		const endX = width; // Ending X position of the scale
-		const scaleY = height / 2; // Vertical position of the scale
-		const centerX = (endX - startX) / 2;
-		const drawScaleYMin = scaleY - (height * .20);
-		const radius = 40 * DPR;
-		const centerY = drawScaleYMin - radius;
+		const midY   = H / 2;                 // horizontal centre line
+		const midX   = W / 2;                 // vertical mid
+		const range  = 50;                    // ± 50 ¢ span
+		const sign   = Math.sign(cents) || 1; // –1 for flat, +1 for sharp (treat 0 as +)
+		const absC   = Math.abs(cents);
+		const clampC = Math.min(range, absC);
 
-		// labels
-		const noteLabel = tuningTo.note;
-		// const label2 = `${tuningTo.freq} Hz`;
+		let indicatorX = midX + (clampC / range) * midX * sign;
 
-		const fontSize = 24 * DPR;
-		const fontWeight = 'bold';
-		ctx.font = `${fontWeight} ${fontSize}px Arial`;
-		ctx.fillStyle = 'white';
+		// Note label
+		const fillStyle = absC <= 2 ? '#4CAF50' : 'white';
+		ctx.font = `bold ${24 * DPR}px Arial`;
+		ctx.fillStyle = fillStyle;
 		ctx.textAlign = 'center';
-		//ctx.textBaseline = 'middle';
+		ctx.textBaseline = 'alphabetic';
 
-		const metrics = ctx.measureText(noteLabel);
+		const metrics = ctx.measureText(tuningTo.note);
 		const ascent  = metrics.actualBoundingBoxAscent;
 		const descent = metrics.actualBoundingBoxDescent;
 		const yOffset = (ascent - descent) / 2;
 
-		ctx.textBaseline = 'alphabetic';
-		ctx.fillText(noteLabel, centerX, centerY + yOffset); // Label below the tick
-		//ctx.fillText(label2, centerX, scaleY + (height * .30)); // Label below the tick
+		const circleY = midY - H * 0.20 - 40 * DPR;
+		ctx.fillText(tuningTo.note, midX, circleY + yOffset);
 
+		// Colors for the indicator
+		const colour =
+			absC <= 2   ? '#4CAF50' :   // spot-on
+			absC <= 10  ? '#FFEB3B' :   // close
+						'#FF4C4C';    // off
 
-		let indicatorX = centerX;
-		let rangeMin = tuningTo.freq - 10;
-		let rangeMax = tuningTo.freq + 10;
-		// map value to string.range and find x position
-		if (value < tuningTo.freq) {
-			let xx = (value - rangeMin) / (tuningTo.freq - rangeMin);
-			if (xx < 0) {
-				xx = 0;
-			}
-			indicatorX = centerX * xx;
-		} else if (value > tuningTo.freq) {
-			let xx = (value - tuningTo.freq) / (rangeMax - tuningTo.freq);
-			if (xx > 1) {
-				xx = 1;
-			}
-			indicatorX = centerX + centerX * xx;
-		}
+		// Arrows
+		// 1. Draw a single arrow pointing TOWARD the centre line
+		// 2. Draw a second arrow if the pitch is more than ±20 ¢ off
+		// 3. Don’t draw anything if the pitch is essentially perfect
+		if (absC > 1) {
+			const dx  = H * 0.03;
+			const dy  = H * 0.03;
 
-		const dist = Math.abs(value - tuningTo.freq);
-		let color = '#4CAF50';
-		if (dist > 5) {
-			color = '#FF4C4C';
-		} else if (dist > 2) {
-			color = '#FFEB3B';
-		}
-
-		if (dist > 1) {
-			let ax = indicatorX
-			let ay = scaleY - (height * .03)
-			let bx = indicatorX + (height * .03)
-			let by = scaleY
-			let cx = indicatorX
-			let cy = scaleY + (height * .03)
-			if (value > tuningTo.freq) {
-				bx = indicatorX - (height * .03)
-			}
-
-			ctx.beginPath();
-			ctx.fillStyle = color;
-			ctx.moveTo(ax, ay);
-			ctx.lineTo(bx, by);
-			ctx.lineTo(cx, cy);
-			ctx.fill();
-
-			if (dist > 5) {
-				ax = indicatorX + (height * .015)
-				ay = scaleY - (height * .03)
-				bx = indicatorX + (height * .03) + (height * .015)
-				by = scaleY
-				cx = indicatorX + (height * .015)
-				cy = scaleY + (height * .03)
-				if (value > tuningTo.freq) {
-					ax = indicatorX - (height * .015)
-					bx = indicatorX - (height * .03) - (height * .015)
-					cx = indicatorX - (height * .015)
-				}
+			// helper draws one arrow pointing TOWARD the centre line
+			const drawArrow = (shift: number, fill: string) => {
+				/*  shift is a positive distance
+					sign =  +1 if sharp, -1 if flat
+					We *subtract* sign so the apex flips sides               */
+				const baseX = indicatorX - sign * shift;
 
 				ctx.beginPath();
-				ctx.fillStyle = '#FF5E5E';
-				ctx.moveTo(ax, ay);
-				ctx.lineTo(bx, by);
-				ctx.lineTo(cx, cy);
+				ctx.moveTo(indicatorX, midY - dy);         // tip (near tick)
+				ctx.lineTo(baseX,      midY);              // apex (points inward)
+				ctx.lineTo(indicatorX, midY + dy);
+				ctx.closePath();
+				ctx.fillStyle = fill;
 				ctx.fill();
+			};
+
+			drawArrow(dx, colour);
+
+			// extra arrow beyond ±20 ¢
+			if (absC > 20) {
+				let origX = indicatorX;
+				indicatorX -= sign * dx / 2; // shift the tip to the right
+				drawArrow(dx + H * 0.003, '#FF5E5E');
+				indicatorX = origX; // reset the tip
 			}
 		}
 
-		// Draw a line connecting the indicator to the scale
+		// Vertical line
 		ctx.beginPath();
-		ctx.moveTo(indicatorX, scaleY - (height * .07));
-		ctx.lineTo(indicatorX, scaleY + (height * .07));
-		ctx.strokeStyle = color;
-		ctx.lineWidth = (height * .012);
+		ctx.strokeStyle = colour;
+		ctx.lineWidth   = 2 * DPR;
+		ctx.moveTo(indicatorX, midY - H * 0.07);
+		ctx.lineTo(indicatorX, midY + H * 0.07);
 		ctx.stroke();
 
-		const label = value.toFixed(1) + " Hz";
-		
-		const fontSizeLabel = 12 * DPR;
-		ctx.font = `${fontSizeLabel}px Arial`;
-		ctx.fillStyle = 'white';
-		ctx.textAlign = 'center';
-		let labelX = indicatorX;
-		if (labelX < 30) {
-			labelX = 30;
-		} else if (labelX > canvas.width - 30) {
-			labelX = canvas.width - 30;
-		}
+		// Display the cents value
+		// const label = `${cents > 0 ? '+' : ''}${cents.toFixed(1)} ¢`;
+		// ctx.font = `${12 * DPR}px Arial`;
+		// ctx.fillStyle = 'white';
 
+		// const boxW   = ctx.measureText(label).width + H * 0.03;
+		// const labelX = Math.max(boxW / 2, Math.min(W - boxW / 2, indicatorX));
 
-		const tw = ctx.measureText(label).width + height * .03;
-		//const th = parseInt(font, 10)
-		ctx.fillStyle = '#121212';
-		ctx.fillRect(labelX - (tw/2), scaleY + (height * .10), tw, 30);
+		// ctx.fillStyle = '#121212';
+		// ctx.fillRect(labelX - boxW / 2, midY + H * 0.10, boxW, 30);
 
-		ctx.fillStyle = 'white';
-		ctx.fillText(label, labelX, scaleY + (height * .13));
-
+		// ctx.fillStyle = 'white';
+		// ctx.textBaseline = 'middle';
+		// ctx.fillText(label, labelX, midY + H * 0.13);
 	}
+
+
 	function resizeCanvas() {
 		if (!canvas_container || !canvas_static || !canvas_dynamic || !ctx_static || !ctx_dynamic) {
 			console.error("missing DOM refs");
@@ -275,7 +234,7 @@
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
-		drawIndicator(tuningTo, 84.31);
+		drawIndicator(tuningTo, 10.0);
 	}
 
 	async function loadWasm() {
@@ -333,7 +292,8 @@
 					const tuningTo = pitch.tuningTo;
 					resetCanvas();
 					//drawScale(tuningTo);
-					drawIndicator(tuningTo, pitch.freq);
+					console.log(pitch);
+					drawIndicator(tuningTo, pitch.cents);
 				}
 			}
 		};
