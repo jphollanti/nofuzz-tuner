@@ -315,7 +315,7 @@
 					// 	: centsDiff(pitch.freq, tuningTo.freq);  // fallback
 
 					resetCanvas();
-					console.log(pitch);
+					//console.log(pitch);
 					drawIndicator(tuningTo, cents);
 				}
 			}
