@@ -537,9 +537,21 @@
 		cursor: pointer;
 		transition: border 0.2s, box-shadow 0.2s;
 
+		text-align: right;          /* Chrome / Safari / Chromium Edge */
+		text-align-last: right;     /* Edge-Legacy, some Blink builds  */
+		padding-right: 2.2rem;      /* keep gap for the SVG arrow */
+
 		/* kill native arrow everywhere */
 		appearance: none;          /* modern */
 		-webkit-appearance: none;  /* Safari */
+	}
+	/* Firefox still ignores text-align on <select>.
+	Trick is: flip writing direction, then flip text back. */
+	@supports (-moz-appearance: none) {
+		.tuning-select {
+			direction: rtl;
+			text-align: left;
+		}
 	}
 
 	/* Add a lightweight SVG arrow as a background image */
