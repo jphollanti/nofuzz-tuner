@@ -3,12 +3,12 @@ use cpal::*;
 use crossterm::{cursor, terminal, ExecutableCommand, QueueableCommand};
 use std::io::{stdout, Write};
 
+use nofuzz_tuner_lib::set_bits;
 use nofuzz_tuner_lib::Config;
 use nofuzz_tuner_lib::FftPitchDetector;
 use nofuzz_tuner_lib::McleodPitchDetector;
 use nofuzz_tuner_lib::PitchFindTrait;
 use nofuzz_tuner_lib::YinPitchDetector;
-use nofuzz_tuner_lib::set_bits;
 use std::thread;
 use std::time::Duration;
 
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.freq_min,
                 config.freq_max,
                 sample_rate,
-                set_bits(&[0, 1, 2, 3, 4, 5]) // highpass, notch50, notch60, notch100, notch120, lowpass
+                set_bits(&[0, 1, 2, 3, 4, 5]), // highpass, notch50, notch60, notch100, notch120, lowpass
             );
             Box::new(yin)
         }
