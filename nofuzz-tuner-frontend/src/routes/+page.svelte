@@ -171,6 +171,8 @@
 	import { browser } from '$app/environment';
 
 	let YinPitchDetector: any;
+	// Todo: use this from Rust instead of setBits
+	//let set_bits: any;
 
 	let canvas_container: HTMLDivElement | null = null;
 
@@ -397,7 +399,10 @@
 		const pkg = await import('../lib/no_fuzz_tuner/pkg/nofuzz_tuner_lib.js');
 		await pkg.default();
 		YinPitchDetector = pkg.YinPitchDetector;
+		// Todo: use this from Rust instead of setBits
+		// set_bits = pkg.set_bits_js;
 	}
+
 	async function unlockAudio(ctx: AudioContext | null) {
 		if (!ctx) return;                 // guard
 		if (ctx.state === 'suspended') {

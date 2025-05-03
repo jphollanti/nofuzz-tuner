@@ -65,6 +65,18 @@ lazy_static! {
     };
 }
 
+// Helpers for bitmasking
+// Used in YinPitchDetector::new() to select filters
+pub fn set_bits(positions: &[u32]) -> usize {
+    positions.iter().fold(0, |acc, &bit| acc | (1 << bit))
+}
+
+#[wasm_bindgen]
+#[allow(clippy::boxed_local)]
+pub fn set_bits_js(bits: Box<[u32]>) -> usize {
+    bits.iter().fold(0, |acc, &bit| acc | (1 << bit))
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub device_id: usize,
