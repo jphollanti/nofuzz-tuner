@@ -220,36 +220,28 @@ impl Biquad {
     }
 
     // /// Low-pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
-    // pub fn new_lowpass(fs: f64, fc: f64, q: f64) -> Self {
-    //     let w0    = 2.0 * PI * fc / fs;
-    //     let alpha = w0.sin() / (2.0 * q);
-    //     let cosw0 = w0.cos();
+    pub fn new_lowpass(fs: f64, fc: f64, q: f64) -> Self {
+        let w0 = 2.0 * PI * fc / fs;
+        let alpha = w0.sin() / (2.0 * q);
+        let cosw0 = w0.cos();
 
-    //     // LP numerator (b0,b1,b2), HP is ((1+cos)/2, -(1+cos), (1+cos)/2)
-    //     let (b0, b1, b2) = (
-    //         (1.0 - cosw0) / 2.0,
-    //         1.0 - cosw0,
-    //         (1.0 - cosw0) / 2.0,
-    //     );
-    //     // denominator is the same form for all biquads
-    //     let (a0, a1, a2) = (
-    //         1.0 + alpha,
-    //     -2.0 * cosw0,
-    //         1.0 - alpha,
-    //     );
+        // LP numerator (b0,b1,b2), HP is ((1+cos)/2, -(1+cos), (1+cos)/2)
+        let (b0, b1, b2) = ((1.0 - cosw0) / 2.0, 1.0 - cosw0, (1.0 - cosw0) / 2.0);
+        // denominator is the same form for all biquads
+        let (a0, a1, a2) = (1.0 + alpha, -2.0 * cosw0, 1.0 - alpha);
 
-    //     Biquad {
-    //         b0: b0 / a0,
-    //         b1: b1 / a0,
-    //         b2: b2 / a0,
-    //         a1: a1 / a0,
-    //         a2: a2 / a0,
-    //         x1: 0.0,
-    //         x2: 0.0,
-    //         y1: 0.0,
-    //         y2: 0.0,
-    //     }
-    // }
+        Biquad {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
 
     /// Notch (aka band‑stop) @ `fc` (Hz) with quality `Q` (narrow notch if Q large)
     fn new_notch(fs: f64, fc: f64, q: f64) -> Self {
@@ -258,6 +250,31 @@ impl Biquad {
         let cosw0 = w0.cos();
         let (b0, b1, b2) = (1.0, -2.0 * cosw0, 1.0);
         let (a0, a1, a2) = (1.0 + alpha, -2.0 * cosw0, 1.0 - alpha);
+
+        Biquad {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn new_bandpass(fs: f64, fc: f64, q: f64) -> Self {
+        let w0 = 2.0 * std::f64::consts::PI * fc / fs;
+        let alpha = w0.sin() / (2.0 * q);
+        let cosw0 = w0.cos();
+
+        let b0 = alpha;
+        let b1 = 0.0;
+        let b2 = -alpha;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cosw0;
+        let a2 = 1.0 - alpha;
 
         Biquad {
             b0: b0 / a0,
@@ -326,39 +343,8 @@ impl Biquad {
 #[wasm_bindgen]
 pub struct YinPitchDetector {
     yin: yin::Yin,
-
-    /** Filters **/
-    // highpass @ 70 Hz, Q=0.707
-    // Guitar fundamentals start at E2 ≈ 82 Hz (or D2 ≈ 73 Hz in Drop‑D).
-    // Below that lives rumble—from laptop fans, room resonance, mic handling
-    // noise—that can confuse autocorrelation or YIN.
-    highpass: Biquad,
-
-    // lowpass: Biquad,
-
-    // Filter out mains‑hum in Europe (50 Hz) and US (60 Hz).
-    // Quiet-but-pervasive buzz you hear when your audio gear picks up the AC power signal
-    // from your wall sockets. Origin: Household electricity alternates at either 50 Hz
-    // (Europe, Asia, Africa, most of the world) or 60 Hz (North America, parts of Asia).
-
-    // Cables, transformers, power supplies and even the wiring in walls create tiny
-    // electromagnetic fields. Your mic preamp or guitar cable, especially if unbalanced,
-    // can act like an antenna and accidentally capture that field.
-
-    // A near‑pure low‑frequency tone (plus its 2nd harmonic at 100 Hz or 120 Hz), often
-    // experienced as a steady “hum” or “buzz” under your music.
-
-    // Why notch it out: That tone sits right in the range where guitar fundamentals
-    // live, so removing it with a narrow notch filter ensures pitch detector doesn’t
-    // mistake the hum for a really low string.
-    notch50: Biquad,
-    notch60: Biquad,
-    notch100: Biquad,
-    notch120: Biquad,
-    // freq_min: f64,
-    // freq_max: f64,
-
-    // noise_gate_threshold: f64,
+    sample_rate: usize,
+    filters: Vec<Biquad>,
 }
 
 #[wasm_bindgen]
@@ -369,28 +355,76 @@ impl YinPitchDetector {
         freq_min: f64,
         freq_max: f64,
         sample_rate: usize,
+
+        // Filters:
+        // Select filters with a bitmask:
+        // 0: highpass @ 70 Hz, Q=0.707
+        //      Guitar fundamentals start at E2 ≈ 82 Hz (or D2 ≈ 73 Hz in Drop‑D).
+        //      Below that lives rumble—from laptop fans, room resonance, mic handling
+        //      noise—that can confuse autocorrelation or YIN.
+        //
+        // 1: notch @ 50 Hz, Q=30
+        //
+        //      Filter out mains‑hum in Europe (50 Hz) and US (60 Hz).
+        //      Quiet-but-pervasive buzz you hear when your audio gear picks up the AC power signal
+        //      from your wall sockets. Origin: Household electricity alternates at either 50 Hz
+        //      (Europe, Asia, Africa, most of the world) or 60 Hz (North America, parts of Asia).
+        //
+        //      Cables, transformers, power supplies and even the wiring in walls create tiny
+        //      electromagnetic fields. Your mic preamp or guitar cable, especially if unbalanced,
+        //      can act like an antenna and accidentally capture that field.
+        //
+        // 2: notch @ 60 Hz, Q=30
+        // 3: notch @ 100 Hz, Q=30
+        //      A near‑pure low‑frequency tone (plus its 2nd harmonic at 100 Hz or 120 Hz), often
+        //      experienced as a steady “hum” or “buzz” under your music.
+        //
+        // 4: notch @ 120 Hz, Q=30
+        // 5: lowpass @ 5 kHz, Q=0.707
+
+        // Note: add individual string filters with add_string_filter method
+        filter_mask: usize,
     ) -> YinPitchDetector {
         let q = 0.707; // classic Butterworth
-        let highpass = Biquad::new_highpass(sample_rate as f64, 70.0, q);
-        let notch50 = Biquad::new_notch(sample_rate as f64, 50.0, 30.0);
-        let notch60 = Biquad::new_notch(sample_rate as f64, 60.0, 30.0);
-        let notch100 = Biquad::new_notch(sample_rate as f64, 100.0, 30.0);
-        let notch120 = Biquad::new_notch(sample_rate as f64, 120.0, 30.0);
-        // let lowpass = Biquad::new_lowpass(sample_rate as f64, 5_000.0, q);
+
+        fn is_bit_set(value: usize, bit: u32) -> bool {
+            (value & (1 << bit)) != 0
+        }
+
+        let mut filters = Vec::new();
+
+        if is_bit_set(filter_mask, 0) {
+            filters.push(Biquad::new_highpass(sample_rate as f64, 70.0, q));
+        }
+        if is_bit_set(filter_mask, 1) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 50.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 2) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 60.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 3) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 100.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 4) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 120.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 5) {
+            filters.push(Biquad::new_lowpass(sample_rate as f64, 5_000.0, q));
+        }
 
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
         YinPitchDetector {
             yin,
-            highpass,
-            // lowpass,
-            notch50,
-            notch60,
-            notch100,
-            notch120,
-            // freq_min,
-            // freq_max,
-            // noise_gate_threshold: 0.01,
+            sample_rate,
+            filters,
         }
+    }
+
+    #[wasm_bindgen]
+    pub fn add_string_filter(&mut self, freq: f64) {
+        let q = 1.0; // adjust for your desired bandwidth
+        self.filters
+            .push(Biquad::new_bandpass(self.sample_rate as f64, freq, q));
     }
 
     #[wasm_bindgen]
@@ -416,12 +450,9 @@ impl PitchFindTrait for YinPitchDetector {
         // - A2: before 2, after 16
 
         for sample in buf.iter_mut() {
-            *sample = self.highpass.process(*sample);
-            *sample = self.notch50.process(*sample);
-            *sample = self.notch60.process(*sample);
-            *sample = self.notch100.process(*sample);
-            *sample = self.notch120.process(*sample);
-            //*sample = self.lowpass.process(*sample);
+            for filter in &mut self.filters {
+                *sample = filter.process(*sample);
+            }
         }
 
         // simple RMS noise gate

@@ -6,17 +6,164 @@
 	const buildVersion =
 		PUBLIC.PUBLIC_BUILD_VERSION
 		?? `dev-${new Date().toISOString()}`;
-	
 
+	/* Data stuctures */
+	class PitchDetector {
+		detector: any;
+
+		block: number;
+		buf: Float32Array;
+		quantum: number;
+
+		tuning: any;
+
+		// state
+		write = 0;
+		filled = 0;
+
+		constructor(
+			threshold: number, 
+			freq_min: number, 
+			freq_max: number, 
+			sampleRate: number, 
+			filters: number, 
+			block: number, 
+			quantum: number,
+			tuning: any = null
+		) {
+			this.block = block;
+			this.buf = new Float32Array(this.block);
+			this.quantum = quantum;
+			this.tuning = tuning;
+			this.detector = new YinPitchDetector(threshold, freq_min, freq_max, sampleRate, filters);
+		}
+
+		add_string_filter(freq: number) {
+			this.detector.add_string_filter(freq);
+		}
+
+		detect(chunk: Float32Array): any | null {
+			if (!chunk) return null;
+
+			this.buf.set(chunk, this.write);
+			this.write = (this.write + this.quantum) % this.block;
+			this.filled += this.quantum;
+
+			if (this.filled >= this.block) {
+				this.filled = 0;
+				return this.detector.maybe_find_pitch_js(this.buf, this.tuning.id);
+			}
+			return null;
+		}
+	}
+
+	// find the most common frequency in the window
+	function mostCommon(arr: number[]): number {
+		const counts: Record<number, number> = {};
+		let maxNum: number = arr[0];
+		let maxCount: number = 0;
+
+		for (const num of arr) {
+			counts[num] = (counts[num] || 0) + 1;
+			if (counts[num] > maxCount) {
+			maxNum = num;
+			maxCount = counts[num];
+			}
+		}
+
+		return maxNum;
+	}
+
+	function setBits(...positions: number[]): number {
+		return positions.reduce((acc, bit) => acc | (1 << bit), 0);
+	}
+
+	class StringDetector extends PitchDetector {
+		selected_note: number | null = null;
+		window: number[] = []
+		window_size: number = 4;
+
+		// If the guitar is not tuned well, cents will be higher in 
+		// general. The better tuned the guitar, the tighter cent control we can 
+		// have. 
+		cents: number[] = []
+		cents_window_size: number = 10;
+		cents_buffer: number = 10;
+		
+		constructor(threshold: number, freq_min: number, freq_max: number, sampleRate: number, tuning: any = null) {
+			const filters = setBits(0, 1, 2, 3, 4, 5); // highpass, notch50, notch60, notch100, notch120, lowpass
+			const block = 4096 * 2;
+			const quantum = 128;
+			super(threshold, freq_min, freq_max, sampleRate, filters, block, quantum, tuning);
+		}
+
+		push(chunk: Float32Array): number | null {
+			const pitch = this.detect(chunk);
+			if (pitch) {
+
+				this.cents.push(Math.abs(pitch.tuningTo.cents));
+				if (this.cents.length > this.cents_window_size) {
+					this.cents.shift();
+				}
+				const avg_cents = this.cents.reduce((a, b) => a + b, 0) / this.cents.length;
+				const allow_cents = avg_cents + this.cents_buffer;
+				//console.log("cents:", pitch.tuningTo.cents, "allow_cents:", allow_cents);
+				
+				// We do this to exclude outliers from the string selection process.
+				const is_within_bounds = Math.abs(pitch.tuningTo.cents) < allow_cents;
+
+				if (is_within_bounds) {
+					this.window.push(pitch.tuningTo.freq);
+					if (this.window.length > this.window_size) {
+						this.window.shift();
+					}
+					if (this.window.length > this.window_size / 2) {
+						return mostCommon(this.window);
+					}
+				}
+			}
+			return null;
+		}
+	}
+	
 	/* Tooltip visibility */
 	let open = false;
 
+	type TuningPreset = {
+		id: string;
+		label: string;
+		freqs: number[];
+		detectors: Map<number, PitchDetector>;
+		stringDetector: StringDetector | null;
+	};
+
 	/* Tuning selections */
-	const tunings = [
-		{ id: 'standard-e', label: 'Standard E' },
-		{ id: 'flat-e',     label: 'Eb / Half-step Down' },
-		{ id: 'drop-d',     label: 'Drop D' },
+	const tunings: TuningPreset[] = [
+		{ 
+			id: 'standard-e', 
+			label: 'Standard E', 
+			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63], detectors: new Map<number, PitchDetector>(), 
+			stringDetector: null 
+		},
+		{ 
+			id: 'flat-e',     
+			label: 'Eb / Half-step Down', 
+			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13], detectors: new Map<number, PitchDetector>(), 
+			stringDetector: null 
+		},
+		{ 
+			id: 'drop-d',     
+			label: 'Drop D', 
+			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63], detectors: new Map<number, PitchDetector>(), 
+			stringDetector: null 
+		},
 	];
+	
+	// These values should come from config.yaml
+	// or similar, but for now we hardcode them
+	const threshold = 0.1;
+	// const freq_min = 60;
+	// const freq_max = 500;
 
 	export let tuning: string = tunings[0].id;
 
@@ -272,12 +419,6 @@
 		await audioContext.audioWorklet.addModule(workletURL);
 
 		const sr = audioContext.sampleRate; 
-		// These values should come from config.yaml
-		// or similar, but for now we hardcode them
-		const threshold = 0.1;
-        const freq_min = 60;
-        const freq_max = 500;
-		const detector = new YinPitchDetector(threshold, freq_min, freq_max, sr);
 
 		// microphone
 		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -296,34 +437,102 @@
 		input.connect(workletNode);
 		workletNode.connect(silence).connect(audioContext.destination);
 
-		const quantum = 128; // every AudioWorklet chunk
-		const BLOCK   = 4096; // Yin frame size
-		const buf     = new Float32Array(BLOCK);
-		let   write   = 0;
-		let   filled  = 0;
+		const quantum = 128;
+		let selected_freq = 82.41; // default: E2
+
+		function resetDetector(detector: PitchDetector) {
+			detector.write = 0;
+			detector.filled = 0;
+			detector.buf.fill(0);
+			// detector.detector.reset(freq);
+		}
+
+		function resetDetectors(detectors: Map<number, PitchDetector>) {
+			for (const [key, detector] of detectors.entries()) {
+				resetDetector(detector);
+			}
+		}
+
+		// Build string specific detectors
+		tunings.forEach(tuning => {
+			const freqs = tuning.freqs;
+			let stringFilter = setBits(0, 5);
+			for (const freq of freqs) {
+
+				// Rough table to determine block size.
+				// We apply this to all tunings, drop-d etc. 
+				// Todo: I guess sample rate should factor into block size calculation.
+				// Note		Freq (Hz)	Block Size @ 44.1 kHz
+				// E2		82.41		8192 (≈186 ms window)
+				// A2		110.00		6144
+				// D3		146.83		4096
+				// G3		196.00		3072
+				// B3		246.94		2048
+				// E4		329.63		2048 or even 1024
+
+				let bl = 8192;
+				if (freq < 90) {
+					bl = 8192;
+				} else if (freq < 150) {
+					bl = 6144;
+				} else if (freq < 200) {
+					bl = 4096;
+				} else if (freq < 250) {
+					bl = 3072;
+				} else if (freq < 350) {
+					bl = 2048;
+				} else {
+					bl = 1024;
+				}
+				const pm = 10;
+				const detector = new PitchDetector(threshold, freq-pm, freq+pm, sr, stringFilter, bl, quantum, tuning);
+				detector.add_string_filter(freq);
+				tuning.detectors.set(freq, detector);
+			}
+			// String detector
+			const sd_freq_min = 60;
+			const sd_freq_max = 500;
+			tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sr, tuning);
+		});
+
+		let selectedTuning = tuning;
+		let tuningObject = tunings.find(t => t.id === tuning) || tunings[0];
 
 		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
 			const chunk = data; // 128 samples
-			buf.set(chunk, write);
-			write = (write + quantum) % BLOCK;
-			filled += quantum;
 
-			if (filled >= BLOCK) {
-				filled = 0; // buffer ready
-				const pitch = detector.maybe_find_pitch_js(buf, tuning);
+			if (tuning !== selectedTuning) {
+				// tuning changed
+				// console.log('tuning changed to ', tuning);
+				const t2 = tunings.find(t => t.id === tuning) || tunings[0];
+				resetDetectors(t2.detectors);
+				selectedTuning = t2.id;
+				tuningObject = t2;
+				resetCanvas();
+				drawScale();
+			}
+
+			if (!tuningObject.stringDetector) {
+				console.error('String detector not found');
+				return;
+			}
+
+			const selectedString = tuningObject.stringDetector.push(chunk);
+			if (selectedString) {
+				if (selectedString !== selected_freq) {
+					resetDetectors(tuningObject.detectors);
+				}
+				selected_freq = selectedString;
+				//console.log(selectedString);
+			}
+
+			const detector = tuningObject.detectors.get(selected_freq);
+			if (detector) {
+				const pitch = detector.detect(chunk);
 				if (pitch) {
 					const tuningTo = pitch.tuningTo;
 					const cents = tuningTo.cents;
-					// /** signed cents between a measured freq and the target note freq */
-					// const centsDiff = (freq: number, target: number) =>
-					// 	1200 * Math.log2(freq / target);          // + = sharp, – = flat
-					// const cents =
-					// 	typeof pitch.cents === 'number'
-					// 	? pitch.cents                      // detector provides it
-					// 	: centsDiff(pitch.freq, tuningTo.freq);  // fallback
-
 					resetCanvas();
-					//console.log(pitch);
 					drawIndicator(tuningTo, cents);
 				}
 			}
