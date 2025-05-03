@@ -86,7 +86,7 @@ YIN algorithm: A popular algorithm for pitch detection that operates in the time
 
 In the future, I plan to explore additional algorithms such as pYIN (probabilistic YIN) – an enhanced version of YIN that could improve detection accuracy and stability even further. 
 
-The current runner up is Yin as it performes well and compiles to WASM without problems. 
+The current runner up is Yin as it performs well and compiles to WASM without problems. 
 
 ## Closing Note
 
