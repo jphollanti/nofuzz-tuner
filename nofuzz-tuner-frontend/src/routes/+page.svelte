@@ -457,16 +457,35 @@
 				resetDetector(detector);
 			}
 		}
+		// Small helper:
+		function nextPow2(x:number) { return 1 << (32 - Math.clz32(x - 1)); }
+
+		// Block‑size chooser:
+		function blockSize(freq:number, sampleRate:number, periods = 3, min = 1024, max = 8192) {
+			const raw = periods * sampleRate / freq;          // cycles-based length
+			const pow2 = nextPow2(raw);                       // round‑up
+			return Math.max(min, Math.min(pow2, max));        // clamp to sane range
+		}
+		// ± windowSizeCents around `f0`
+		function freqBounds(f0:number, windowSizeCents = 120) {          // ±120 ¢ = ±1.2 sem
+			const ratio = Math.pow(2, windowSizeCents / 1200);     // cents → ratio
+			return [f0 / ratio, f0 * ratio];
+		}
+
+		console.log('generic settings')
+		console.log('- sample rate:', sr);
+		console.log('- quantum:', quantum);
 
 		// Build string specific detectors
 		tunings.forEach(tuning => {
 			const freqs = tuning.freqs;
 			let stringFilter = setBits(0, 5);
+			console.log('-------------------------------------');
+			console.log('settings for tuning', tuning.id);
 			for (const freq of freqs) {
-
+				console.log('- freq:', freq);
+				console.log('  threshold:', threshold);
 				// Rough table to determine block size.
-				// We apply this to all tunings, drop-d etc. 
-				// Todo: I guess sample rate should factor into block size calculation.
 				// Note		Freq (Hz)	Block Size @ 44.1 kHz
 				// E2		82.41		8192 (≈186 ms window)
 				// A2		110.00		6144
@@ -474,23 +493,11 @@
 				// G3		196.00		3072
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
-
-				let bl = 8192;
-				if (freq < 90) {
-					bl = 8192;
-				} else if (freq < 150) {
-					bl = 6144;
-				} else if (freq < 200) {
-					bl = 4096;
-				} else if (freq < 250) {
-					bl = 3072;
-				} else if (freq < 350) {
-					bl = 2048;
-				} else {
-					bl = 1024;
-				}
-				const pm = 10;
-				const detector = new PitchDetector(threshold, freq-pm, freq+pm, sr, stringFilter, bl, quantum, tuning);
+				const bl = blockSize(freq, sr);
+				console.log('  block size:', bl);
+				const [fMin, fMax] = freqBounds(freq, 120);
+				console.log('  freq min, max:', fMin, fMax);
+				const detector = new PitchDetector(threshold, fMin, fMax, sr, stringFilter, bl, quantum, tuning);
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
 			}
