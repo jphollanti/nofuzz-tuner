@@ -3,10 +3,6 @@
 	import { draw, fade } from 'svelte/transition';
 	import workletURL from '$lib/audio/pitch-worklet.js?url'; 
 	
-	const buildVersion =
-		PUBLIC.PUBLIC_BUILD_VERSION
-		?? `dev-${new Date().toISOString()}`;
-
 	/* Data stuctures */
 	class PitchDetector {
 		detector: any;
@@ -51,6 +47,7 @@
 
 			if (this.filled >= this.block) {
 				this.filled = 0;
+				const start = performance.now();
 				return this.detector.maybe_find_pitch_js(this.buf, this.tuning.id);
 			}
 			return null;
@@ -126,9 +123,6 @@
 		}
 	}
 	
-	/* Tooltip visibility */
-	let open = false;
-
 	type TuningPreset = {
 		id: string;
 		label: string;
@@ -159,6 +153,19 @@
 		},
 	];
 	
+	// Variables
+	const buildVersion =
+		PUBLIC.PUBLIC_BUILD_VERSION
+		?? `dev-${new Date().toISOString()}`;
+	
+	/* Tooltip visibility */
+	let open = false;
+
+	let sampleRate = -1;
+	let algoPerformance_1 = -1;
+	let algoPerformance_2 = -1;
+	let drawPerformance = -1;
+
 	// These values should come from config.yaml
 	// or similar, but for now we hardcode them
 	const threshold = 0.1;
@@ -423,7 +430,7 @@
 		await audioContext.resume();
 		await audioContext.audioWorklet.addModule(workletURL);
 
-		const sr = audioContext.sampleRate; 
+		sampleRate = audioContext.sampleRate; 
 
 		// microphone
 		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -473,7 +480,7 @@
 		}
 
 		console.log('generic settings')
-		console.log('- sample rate:', sr);
+		console.log('- sample rate:', sampleRate);
 		console.log('- quantum:', quantum);
 
 		// Build string specific detectors
@@ -493,22 +500,26 @@
 				// G3		196.00		3072
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
-				const bl = blockSize(freq, sr);
+				const bl = blockSize(freq, sampleRate);
 				console.log('  block size:', bl);
 				const [fMin, fMax] = freqBounds(freq, 120);
 				console.log('  freq min, max:', fMin, fMax);
-				const detector = new PitchDetector(threshold, fMin, fMax, sr, stringFilter, bl, quantum, tuning);
+				const detector = new PitchDetector(threshold, fMin, fMax, sampleRate, stringFilter, bl, quantum, tuning);
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
 			}
 			// String detector
 			const sd_freq_min = 60;
 			const sd_freq_max = 500;
-			tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sr, tuning);
+			tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sampleRate, tuning);
 		});
 
 		let selectedTuning = tuning;
 		let tuningObject = tunings.find(t => t.id === tuning) || tunings[0];
+
+		let algo1_Array: number[] = [];
+		let algo2_Array: number[] = [];
+		let draw_Array: number[] = [];
 
 		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
 			const chunk = data; // 128 samples
@@ -529,8 +540,14 @@
 				return;
 			}
 
+			let start = performance.now();
 			const selectedString = tuningObject.stringDetector.push(chunk);
 			if (selectedString) {
+				algo1_Array.push(performance.now() - start);
+				if (algo1_Array.length > 10) {
+					algoPerformance_1 = algo1_Array.reduce((a, b) => a + b, 0) / algo1_Array.length;
+					algo1_Array = [];
+				}
 				if (selectedString !== selected_freq) {
 					resetDetectors(tuningObject.detectors);
 				}
@@ -540,12 +557,25 @@
 
 			const detector = tuningObject.detectors.get(selected_freq);
 			if (detector) {
+				start = performance.now();
 				const pitch = detector.detect(chunk);
 				if (pitch) {
+					algo2_Array.push(performance.now() - start);
+					if (algo2_Array.length > 10) {
+						algoPerformance_2 = algo2_Array.reduce((a, b) => a + b, 0) / algo2_Array.length;
+						algo2_Array = [];
+					}
+
 					const tuningTo = pitch.tuningTo;
 					const cents = tuningTo.cents;
+					start = performance.now();
 					resetCanvas();
 					drawIndicator(tuningTo, cents);
+					draw_Array.push(performance.now() - start);
+					if (draw_Array.length > 10) {
+						drawPerformance = draw_Array.reduce((a, b) => a + b, 0) / draw_Array.length;
+						draw_Array = [];
+					}
 				}
 			}
 		};
@@ -649,7 +679,12 @@
 
 	{#if open}
 		<div class="bubble" id="build-id" transition:fade>
-			Build&nbsp;{buildVersion}
+			Build&nbsp;{buildVersion}<br>
+			Sample rate: {sampleRate} Hz<br>
+			Performance:<br>
+			 - String Detector: {Math.trunc(algoPerformance_1)} ms<br>
+			 - Pitch Detector: {Math.trunc(algoPerformance_2)} ms<br>
+			 - Draw: {Math.trunc(drawPerformance)} ms
 		</div>
 	{/if}
 </button>
@@ -727,6 +762,7 @@
 		position: absolute;
 		bottom: 150%;
 		right: 0;
+		text-align: left;
 
 		background: var(--bg);
 		color: var(--fg);
