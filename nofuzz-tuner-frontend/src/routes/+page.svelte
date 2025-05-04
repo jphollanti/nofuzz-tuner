@@ -162,6 +162,10 @@
 	let open = false;
 
 	let sampleRate = -1;
+
+	// Performance metrics
+	// Budget = time between consecutive audio callbacks. Processing time should be < 50 % of the buffer duration to leave head‑room.
+	// Todo: measure the buffer duration
 	let algoPerformance_1 = -1;
 	let algoPerformance_2 = -1;
 	let drawPerformance = -1;
