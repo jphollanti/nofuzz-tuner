@@ -136,19 +136,22 @@
 		{ 
 			id: 'standard-e', 
 			label: 'Standard E', 
-			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63], detectors: new Map<number, PitchDetector>(), 
+			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63], 
+			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
 		},
 		{ 
 			id: 'flat-e',     
 			label: 'Eb / Half-step Down', 
-			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13], detectors: new Map<number, PitchDetector>(), 
+			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13], 
+			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
 		},
 		{ 
 			id: 'drop-d',     
 			label: 'Drop D', 
-			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63], detectors: new Map<number, PitchDetector>(), 
+			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63], 
+			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
 		},
 	];
