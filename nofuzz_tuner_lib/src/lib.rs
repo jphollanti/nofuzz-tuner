@@ -1098,6 +1098,8 @@ mod tests {
             500.0, // max frequency
             sr as usize,
             0b111110, // filter mask
+            4096,     // block size
+            false,    // fft_refine
         );
         let frame_size = 4096;
         let offset = 0; // You can slide this later
@@ -1283,7 +1285,9 @@ mod tests {
             60.0,  // min frequency
             500.0, // max frequency
             sample_rate,
-            0b111110, // filter mask
+            0b111110, // filter mask,
+            4096,     // block
+            false,    // fft_refine
         );
 
         let frame_size = 2048;
