@@ -461,6 +461,36 @@ impl YinPitchDetector {
         block: usize,
         fft_refine: bool,
     ) -> YinPitchDetector {
+        // /**
+        //  * This works OK now but G3 string is still noisy.
+        //  *
+        //  * Can try to:
+        //  * - Apply harmonic correction
+        //  * Check if the refined frequency is a clean multiple of the YIN estimate:
+        //  * let ratio = refined_freq / approx_freq;
+        //  * let rounded = ratio.round();
+        //  * if (rounded - ratio).abs() < 0.05 && rounded <= 3.0 {
+        //  *     refined_freq /= rounded;
+        //  * }
+        //  *
+        //  * - Use longer FFT window just for G string
+        //  *
+        //  * - Increase smoothing just for G. Temporarily boost EMA smoothing:
+        //  *      if note == "G":
+        //  *           let alpha = if note == "G" { 0.2 } else { 0.4 };
+        //  *
+        //  * - Apply bandpass filter 180–220 Hz
+        //  *
+        //  * Apply a narrow bandpass filter around 180–220 Hz before passing G
+        //  * string data into pitch estimation. This helps both YIN and FFT zero in.
+        //  *
+        //  * Summary Table
+        //  * Fix	                            Helps With
+        //  * Harmonic correction	            FFT misidentifying pitch
+        //  * Larger FFT window (G-only)	    Bin resolution
+        //  * Lower EMA α (G-only)	        Visual jitter
+        //  * Bandpass filtering 180–220 Hz	Noise & overtones
+        //  */
         let q = 0.707; // classic Butterworth
 
         fn is_bit_set(value: usize, bit: u32) -> bool {
