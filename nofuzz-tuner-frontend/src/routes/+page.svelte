@@ -256,12 +256,12 @@
 		ctx.stroke();
 
 		// circle
-		const radius = 40 * DPR;
-		const centerY = drawScaleYMin - radius;
+		const radius = 200 * DPR;
+		const centerY = drawScaleYMax + radius;
 		ctx.beginPath();
 		ctx.strokeStyle = scaleColour;
 		ctx.lineWidth = lineWidth*2;
-		ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+		ctx.arc(centerX, centerY, radius, Math.PI * 1.35, Math.PI * 1.65);
 		ctx.stroke();
 
 		// Triangle (nudge) at the bottom of the circle
@@ -322,7 +322,7 @@
 		const descent = metrics.actualBoundingBoxDescent;
 		const yOffset = (ascent - descent) / 2;
 
-		const circleY = midY - H * 0.20 - 40 * DPR;
+		const circleY = midY + H * 0.25 + 40 * DPR;
 		ctx.fillText(tuningTo.note, midX, circleY + yOffset);
 
 		// Colors for the indicator
@@ -336,20 +336,25 @@
 		// 2. Draw a second arrow if the pitch is more than ±20 ¢ off
 		// 3. Don’t draw anything if the pitch is essentially perfect
 		if (absC > 1) {
-			const dx  = H * 0.03;
-			const dy  = H * 0.03;
+
+			// draw to center instead
+			let arrowX = midX
+			let arrowY = midY + H * 0.25;
+
+			const dx  = H * 0.015;
+			const dy  = H * 0.015;
 
 			// helper draws one arrow pointing TOWARD the centre line
 			const drawArrow = (shift: number, fill: string) => {
 				/*  shift is a positive distance
 					sign =  +1 if sharp, -1 if flat
 					We *subtract* sign so the apex flips sides               */
-				const baseX = indicatorX - sign * shift;
+				const baseX = arrowX - sign * shift;
 
 				ctx.beginPath();
-				ctx.moveTo(indicatorX, midY - dy);         // tip (near tick)
-				ctx.lineTo(baseX,      midY);              // apex (points inward)
-				ctx.lineTo(indicatorX, midY + dy);
+				ctx.moveTo(arrowX, arrowY - dy);         // tip (near tick)
+				ctx.lineTo(baseX, arrowY);              // apex (points inward)
+				ctx.lineTo(arrowX, arrowY + dy);
 				ctx.closePath();
 				ctx.fillStyle = fill;
 				ctx.fill();
@@ -359,20 +364,44 @@
 
 			// extra arrow beyond ±20 ¢
 			if (absC > 20) {
-				let origX = indicatorX;
-				indicatorX -= sign * dx / 2; // shift the tip to the right
+				let origX = arrowX;
+				arrowX -= sign * dx / 2; // shift the tip to the right
 				drawArrow(dx + H * 0.003, '#FF5E5E');
-				indicatorX = origX; // reset the tip
+				arrowX = origX; // reset the tip
 			}
 		}
 
 		// Vertical line
-		ctx.beginPath();
-		ctx.strokeStyle = colour;
-		ctx.lineWidth   = 2 * DPR;
-		ctx.moveTo(indicatorX, midY - H * 0.07);
-		ctx.lineTo(indicatorX, midY + H * 0.07);
-		ctx.stroke();
+		// ctx.beginPath();
+		// ctx.strokeStyle = colour;
+		// ctx.lineWidth   = 2 * DPR;
+		// ctx.moveTo(indicatorX, midY - H * 0.07);
+		// ctx.lineTo(indicatorX, midY + H * 0.07);
+		// ctx.stroke();
+		function drawNeedle(cents:number, centerX:number, centerY:number, length:number, colour:string) {
+			// Clamp cents to the expected range
+			cents = Math.max(-30, Math.min(30, cents));
+
+			// Convert cents to angle in radians (max ±30° = ±π/6)
+			const maxAngle = Math.PI / 6;
+			const angle = (cents / 30) * maxAngle;
+
+			ctx.save();
+
+			ctx.translate(centerX, centerY); // Move origin to pivot point
+			ctx.rotate(angle);               // Rotate needle based on tuning
+
+			ctx.beginPath();
+			ctx.moveTo(0, -length * 0.435);                // Pivot point
+			ctx.lineTo(0, -length);          // Needle length upwards
+			ctx.strokeStyle = colour;
+			ctx.lineWidth = 2 * DPR;
+			ctx.stroke();
+
+			ctx.restore();
+		}
+
+		drawNeedle(cents, midX, midY + H * 0.5, H * 0.7, colour);
 
 		// Display the cents value
 		// const label = `${cents > 0 ? '+' : ''}${cents.toFixed(1)} ¢`;
@@ -415,7 +444,7 @@
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
-		drawIndicator(tuningTo, 10.0);
+		drawIndicator(tuningTo, 15.0);
 	}
 
 	async function loadWasm() {
@@ -496,19 +525,19 @@
 			return [f0 / ratio, f0 * ratio];
 		}
 
-		console.log('generic settings')
-		console.log('- sample rate:', sampleRate);
-		console.log('- quantum:', quantum);
+		// console.log('generic settings')
+		// console.log('- sample rate:', sampleRate);
+		// console.log('- quantum:', quantum);
 
 		// Build string specific detectors
 		tunings.forEach(tuning => {
 			const freqs = tuning.freqs;
 			let stringFilter = setBits(0, 5);
-			console.log('-------------------------------------');
-			console.log('settings for tuning', tuning.id);
+			// console.log('-------------------------------------');
+			// console.log('settings for tuning', tuning.id);
 			for (const freq of freqs) {
-				console.log('- freq:', freq);
-				console.log('  threshold:', threshold);
+				// console.log('- freq:', freq);
+				// console.log('  threshold:', threshold);
 				// Rough table to determine block size.
 				// Note		Freq (Hz)	Block Size @ 44.1 kHz
 				// E2		82.41		8192 (≈186 ms window)
@@ -518,9 +547,9 @@
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
 				const bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
-				console.log('  block size:', bl);
+				// console.log('  block size:', bl);
 				const [fMin, fMax] = freqBounds(freq, 120);
-				console.log('  freq min, max:', fMin, fMax);
+				// console.log('  freq min, max:', fMin, fMax);
 				const detector = new PitchDetector(threshold, fMin, fMax, sampleRate, stringFilter, bl, quantum, tuning, pitchFftRefine);
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
