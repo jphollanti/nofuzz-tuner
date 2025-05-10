@@ -684,6 +684,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "pitch-detection",
+ "rustfft",
  "serde",
  "symphonia",
  "wasm-bindgen",
@@ -991,9 +992,9 @@ dependencies = [
 
 [[package]]
 name = "rustfft"
-version = "6.1.0"
+version = "6.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e17d4f6cbdb180c9f4b2a26bbf01c4e647f1e1dea22fe8eb9db54198b32f9434"
+checksum = "f266ff9b0cfc79de11fd5af76a2bc672fe3ace10c96fa06456740fa70cb1ed49"
 dependencies = [
  "num-complex",
  "num-integer",

@@ -2,6 +2,8 @@
 
 use pitch_detection::detector::mcleod::McLeodDetector;
 use pitch_detection::detector::PitchDetector;
+use rustfft::{num_complex::Complex, FftPlanner};
+use std::collections::VecDeque;
 
 use audioviz::spectrum::{
     config::{
@@ -169,8 +171,62 @@ impl PitchResult {
     }
 }
 
+#[wasm_bindgen]
+pub struct FrequencySmoother {
+    window: VecDeque<f64>,
+    max_size: usize,
+}
+
+impl FrequencySmoother {
+    fn new(max_size: usize) -> Self {
+        FrequencySmoother {
+            window: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    fn push(&mut self, value: f64) {
+        if self.window.len() == self.max_size {
+            self.window.pop_front();
+        }
+        self.window.push_back(value);
+    }
+
+    fn average(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            None
+        } else {
+            Some(self.window.iter().sum::<f64>() / self.window.len() as f64)
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub struct ExpMovingAverage {
+    alpha: f64, // e.g., 0.2
+    current: Option<f64>,
+}
+
+impl ExpMovingAverage {
+    fn new(alpha: f64) -> Self {
+        Self {
+            alpha,
+            current: None,
+        }
+    }
+
+    fn update(&mut self, new_value: f64) -> f64 {
+        self.current = Some(match self.current {
+            Some(prev) => self.alpha * new_value + (1.0 - self.alpha) * prev,
+            None => new_value,
+        });
+        self.current.unwrap()
+    }
+}
+
 pub trait PitchFindTrait: Send + Sync {
     fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult>;
+    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32>;
 }
 
 fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
@@ -357,6 +413,12 @@ pub struct YinPitchDetector {
     yin: yin::Yin,
     sample_rate: usize,
     filters: Vec<Biquad>,
+
+    fft_refine: bool,
+    fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
+
+    freq_smoother: FrequencySmoother,
+    clarity_smoother: ExpMovingAverage,
 }
 
 #[wasm_bindgen]
@@ -396,6 +458,8 @@ impl YinPitchDetector {
 
         // Note: add individual string filters with add_string_filter method
         filter_mask: usize,
+        block: usize,
+        fft_refine: bool,
     ) -> YinPitchDetector {
         let q = 0.707; // classic Butterworth
 
@@ -425,10 +489,23 @@ impl YinPitchDetector {
         }
 
         let yin = yin::Yin::init(threshold, freq_min, freq_max, sample_rate);
+        let buffer_len: usize = block; //4096;// block;
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(buffer_len);
+
         YinPitchDetector {
             yin,
             sample_rate,
             filters,
+            fft,
+            fft_refine,
+            freq_smoother: FrequencySmoother::new(3),
+            // Alpha:
+            // 0.1	Very smooth, slow reaction	Stable pitch display
+            // 0.3	Moderate smoothing	        Fast UI with mild damping
+            // 0.5+	Very reactive, less stable	Real-time effects, fast glides
+            // 1.0	No smoothing (raw signal)	Rarely useful unless you like chaos
+            clarity_smoother: ExpMovingAverage::new(0.4),
         }
     }
 
@@ -473,56 +550,101 @@ impl PitchFindTrait for YinPitchDetector {
         //     return None;  // too quiet → probably just hiss
         // }
 
-        let freq = self.yin.estimate_freq(&buf);
-        if freq != f64::INFINITY {
-            // Find closest note
-            let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
-            let cents = 1200.0 * (freq / closest_freq).log2();
-            return Some(PitchResult::new(
-                freq,
-                tuning.to_string(),
-                closest_note,
-                closest_freq,
-                distance,
-                cents,
-            ));
+        let estimated_freq = self.yin.estimate_freq(&buf);
+        if estimated_freq != f64::INFINITY {
+            let mut freq: f64 = -1.0;
+
+            if self.fft_refine {
+                let buf_f32: Vec<f32> = buf.iter().map(|&x| x as f32).collect();
+                let refined_freq = self.fft_refine_pitch(&buf_f32, estimated_freq as f32);
+                if refined_freq.is_some() {
+                    freq = refined_freq.unwrap() as f64;
+                }
+            } else {
+                freq = estimated_freq;
+            }
+
+            if freq > 0.0 {
+                self.freq_smoother.push(freq);
+
+                if let Some(mean_freq) = self.freq_smoother.average() {
+                    if (mean_freq - freq).abs() > 5.5 {
+                        // Try to prevent fluctuations
+                        return None;
+                    }
+                    //let stable_freq = freq;
+                    let stable_freq = self.clarity_smoother.update(freq);
+
+                    // Find closest note
+                    let (closest_note, closest_freq, distance) =
+                        find_closest_note(stable_freq, tuning).unwrap();
+                    let cents = 1200.0 * (stable_freq / closest_freq).log2();
+                    return Some(PitchResult::new(
+                        stable_freq,
+                        tuning.to_string(),
+                        closest_note,
+                        closest_freq,
+                        distance,
+                        cents,
+                    ));
+                }
+            }
         }
         None
+    }
 
-        // let do_octave_guard = false;
-        // if do_octave_guard {
-        //     // octave-error guard
-        //     octave_guard(raw_freq, self.freq_min, self.freq_max, tuning).and_then(
-        //         |(freq, note, note_freq, distance)| {
-        //             const MAX_CENTS: f64 = 30.0;
-        //             let cents = 1200.0 * (freq / note_freq).log2();
-        //             if cents.abs() > MAX_CENTS {
-        //                 None
-        //             } else {
-        //                 Some(PitchResult::new(
-        //                     freq,
-        //                     tuning.to_string(),
-        //                     note,
-        //                     note_freq,
-        //                     distance,
-        //                     cents,
-        //                 ))
-        //             }
-        //         },
-        //     )
-        // } else {
-        //     let (closest_note, closest_freq, distance) =
-        //         find_closest_note(raw_freq, tuning).unwrap();
-        //     let cents = 1200.0 * (raw_freq / closest_freq).log2();
-        //     return Some(PitchResult::new(
-        //         raw_freq,
-        //         tuning.to_string(),
-        //         closest_note,
-        //         closest_freq,
-        //         distance,
-        //         cents,
-        //     ));
-        // }
+    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32> {
+        let len = samples.len();
+
+        // Apply Hann window to samples
+        let mut buffer: Vec<Complex<f32>> = samples
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let hann_window =
+                    0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / len as f32).cos();
+                Complex {
+                    re: x * hann_window,
+                    im: 0.0,
+                }
+            })
+            .collect();
+
+        self.fft.process(&mut buffer);
+
+        let bin_resolution = self.sample_rate as f32 / len as f32;
+        let approx_bin = (approx_freq / bin_resolution).round() as usize;
+
+        // Ensure the bin is safely within bounds
+        if approx_bin < 2 || approx_bin >= len / 2 - 2 {
+            return None;
+        }
+
+        // Find the actual local peak within ±1 bin around approx_bin
+        let search_bins =
+            approx_bin.saturating_sub(1)..=(approx_bin + 1).min(buffer.len().saturating_sub(1));
+
+        let (peak_bin, _) = search_bins
+            .map(|bin| (bin, buffer[bin].norm()))
+            .max_by(|(_, mag_a), (_, mag_b)| mag_a.partial_cmp(mag_b).unwrap())?;
+
+        // Guard: ensure we're not near the edge of the buffer
+        if peak_bin < 1 || peak_bin + 1 >= buffer.len() {
+            return None;
+        }
+        let mag_prev = buffer[peak_bin - 1].norm();
+        let mag_curr = buffer[peak_bin].norm();
+        let mag_next = buffer[peak_bin + 1].norm();
+
+        let denominator = mag_prev - 2.0 * mag_curr + mag_next;
+        if denominator.abs() < f32::EPSILON {
+            return Some(peak_bin as f32 * bin_resolution);
+        }
+
+        let delta = 0.5 * (mag_prev - mag_next) / denominator;
+        let refined_bin = peak_bin as f32 + delta;
+
+        Some(refined_bin * bin_resolution)
     }
 }
 
@@ -576,6 +698,9 @@ impl PitchFindTrait for McleodPitchDetector {
             //return Some(p.frequency);
         }
         None
+    }
+    fn fft_refine_pitch(&self, _samples: &[f32], approx_freq: f32) -> Option<f32> {
+        Some(approx_freq)
     }
 }
 
@@ -646,6 +771,10 @@ impl PitchFindTrait for FftPitchDetector {
             distance,
             cents,
         ))
+    }
+
+    fn fft_refine_pitch(&self, _samples: &[f32], approx_freq: f32) -> Option<f32> {
+        Some(approx_freq)
     }
 }
 #[cfg(test)]

@@ -25,13 +25,14 @@
 			filters: number, 
 			block: number, 
 			quantum: number,
-			tuning: any = null
+			tuning: any = null, 
+			fft_refine: boolean = false
 		) {
 			this.block = block;
 			this.buf = new Float32Array(this.block);
 			this.quantum = quantum;
 			this.tuning = tuning;
-			this.detector = new YinPitchDetector(threshold, freq_min, freq_max, sampleRate, filters);
+			this.detector = new YinPitchDetector(threshold, freq_min, freq_max, sampleRate, filters, block, fft_refine);
 		}
 
 		add_string_filter(freq: number) {
@@ -89,9 +90,10 @@
 		
 		constructor(threshold: number, freq_min: number, freq_max: number, sampleRate: number, tuning: any = null) {
 			const filters = setBits(0, 1, 2, 3, 4, 5); // highpass, notch50, notch60, notch100, notch120, lowpass
-			const block = 4096 * 2;
+			// const block = 4096 * fftBlockSizeMultiplier;
+			const block = 16384 / 2; // TODO: needs more experimentation
 			const quantum = 128;
-			super(threshold, freq_min, freq_max, sampleRate, filters, block, quantum, tuning);
+			super(threshold, freq_min, freq_max, sampleRate, filters, block, quantum, tuning, stringFftRefine);
 		}
 
 		push(chunk: Float32Array): number | null {
@@ -178,6 +180,14 @@
 	const threshold = 0.1;
 	// const freq_min = 60;
 	// const freq_max = 500;
+
+	const stringFftRefine = false;
+	const pitchFftRefine = true;
+
+	// FFT refinement requires large block sizes. 
+	// TODO: the current value of 8 is large leading to slow
+	// updates on UI. But it seems to be very accurate. 
+	const fftBlockSizeMultiplier = 8;
 
 	export let tuning: string = tunings[0].id;
 
@@ -507,11 +517,11 @@
 				// G3		196.00		3072
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
-				const bl = blockSize(freq, sampleRate);
+				const bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
 				console.log('  block size:', bl);
 				const [fMin, fMax] = freqBounds(freq, 120);
 				console.log('  freq min, max:', fMin, fMax);
-				const detector = new PitchDetector(threshold, fMin, fMax, sampleRate, stringFilter, bl, quantum, tuning);
+				const detector = new PitchDetector(threshold, fMin, fMax, sampleRate, stringFilter, bl, quantum, tuning, pitchFftRefine);
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
 			}

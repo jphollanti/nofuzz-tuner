@@ -39,6 +39,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.freq_max,
                 sample_rate,
                 set_bits(&[0, 1, 2, 3, 4, 5]), // highpass, notch50, notch60, notch100, notch120, lowpass
+                4024,
+                false,
             );
             Box::new(yin)
         }
