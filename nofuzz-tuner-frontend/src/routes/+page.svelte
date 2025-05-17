@@ -362,8 +362,8 @@
 			let arrowX = midX
 			let arrowY = midY + H * 0.25;
 
-			const dx  = H * 0.015;
-			const dy  = H * 0.015;
+			const dx = H * 0.015;
+			const dy = H * 0.015;
 
 			// helper draws one arrow pointing TOWARD the centre line
 			const drawArrow = (shift: number, fill: string) => {
@@ -414,7 +414,7 @@
 
 			ctx.beginPath();
 			ctx.moveTo(0, -length * 0.435);                // Pivot point
-			ctx.lineTo(0, -length);          // Needle length upwards
+			ctx.lineTo(0, -length * 0.9245);          // Needle length upwards
 			ctx.strokeStyle = colour;
 			ctx.lineWidth = 2 * DPR;
 			ctx.stroke();
@@ -422,7 +422,13 @@
 			ctx.restore();
 		}
 
-		drawNeedle(cents, midX, midY + H * 0.5, H * 0.7, colour);
+		
+		// Draw the linear scale
+		const scaleY = H / 2;
+		const drawScaleYMax = scaleY + (H * .20);
+		const radius = 200 * DPR;
+		const needleY = drawScaleYMax + radius;
+		drawNeedle(cents, midX, needleY, H * 0.81, colour);
 
 		// Display the cents value
 		// const label = `${cents > 0 ? '+' : ''}${cents.toFixed(1)} ¢`;
@@ -465,7 +471,7 @@
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
-		drawIndicator(tuningTo, 15.0);
+		drawIndicator(tuningTo, -1.0);
 	}
 
 	async function loadWasm() {
