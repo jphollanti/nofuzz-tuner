@@ -21,18 +21,29 @@
 			threshold: number, 
 			freq_min: number, 
 			freq_max: number, 
-			sampleRate: number, 
-			filters: number, 
+			sampleRate: number,  
 			block: number, 
+			filters: number,
+			features: number,
 			quantum: number,
 			tuning: any = null, 
-			fft_refine: boolean = false
+			averageBufferSize: number = 3,
+			clarityAlpha: number = .4
 		) {
 			this.block = block;
 			this.buf = new Float32Array(this.block);
 			this.quantum = quantum;
 			this.tuning = tuning;
-			this.detector = new YinPitchDetector(threshold, freq_min, freq_max, sampleRate, filters, block, fft_refine);
+			this.detector = new YinPitchDetector(
+				threshold, 
+				freq_min, 
+				freq_max, 
+				sampleRate, 
+				block, 
+				filters, 
+				features, 
+				averageBufferSize, 
+				clarityAlpha);
 		}
 
 		add_string_filter(freq: number) {
@@ -93,7 +104,17 @@
 			// const block = 4096 * fftBlockSizeMultiplier;
 			const block = 16384 / 2; // TODO: needs more experimentation
 			const quantum = 128;
-			super(threshold, freq_min, freq_max, sampleRate, filters, block, quantum, tuning, stringFftRefine);
+			const features = 0; // no features
+			super(
+				threshold, 
+				freq_min, 
+				freq_max, 
+				sampleRate, 
+				block, 
+				filters, 
+				features, 
+				quantum, 
+				tuning);
 		}
 
 		push(chunk: Float32Array): number | null {
@@ -546,11 +567,34 @@
 				// G3		196.00		3072
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
-				const bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
+				let bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
 				// console.log('  block size:', bl);
 				const [fMin, fMax] = freqBounds(freq, 120);
 				// console.log('  freq min, max:', fMin, fMax);
-				const detector = new PitchDetector(threshold, fMin, fMax, sampleRate, stringFilter, bl, quantum, tuning, pitchFftRefine);
+				let features = setBits(0); // 0: fft refinement, 1: Averaging, 2: Clarity
+				let avgBufferSize = 3; 
+				let alpha = 0.4;
+				if (freq === 196.00) {
+					//  * Increase smoothing just for G. Temporarily boost EMA smoothing:
+					//  * let alpha = if note == "G" { 0.2 } else { 0.4 };
+					alpha = 0.2;
+					features = setBits(0, 1, 2); // 0: fft refinement, 1: Averaging
+					avgBufferSize = 10; // 5 samples
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
+				}
+				
+				const detector = new PitchDetector(
+					threshold, 
+					fMin, 
+					fMax, 
+					sampleRate, 
+					bl, 
+					stringFilter, 
+					features, 
+					quantum, 
+					tuning, 
+					avgBufferSize, 
+					alpha);
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
 			}

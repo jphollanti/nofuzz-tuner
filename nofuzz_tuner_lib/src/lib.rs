@@ -28,6 +28,10 @@ pub fn start() {
     console_error_panic_hook::set_once();
 }
 
+fn is_bit_set(value: usize, bit: u32) -> bool {
+    (value & (1 << bit)) != 0
+}
+
 // Guitar string frequencies cheat-sheet:
 lazy_static! {
     pub static ref TUNINGS: HashMap<&'static str, HashMap<&'static str, f64>> = {
@@ -414,21 +418,22 @@ pub struct YinPitchDetector {
     sample_rate: usize,
     filters: Vec<Biquad>,
 
-    fft_refine: bool,
+    feature_mask: usize,
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
-
     freq_smoother: FrequencySmoother,
     clarity_smoother: ExpMovingAverage,
 }
 
 #[wasm_bindgen]
 impl YinPitchDetector {
+    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(constructor)]
     pub fn new(
         threshold: f64,
         freq_min: f64,
         freq_max: f64,
         sample_rate: usize,
+        block: usize,
 
         // Filters:
         // Select filters with a bitmask:
@@ -458,8 +463,20 @@ impl YinPitchDetector {
 
         // Note: add individual string filters with add_string_filter method
         filter_mask: usize,
-        block: usize,
-        fft_refine: bool,
+
+        // Features:
+        // 0: FFT refinement
+        // 1: Averaging
+        // 2: Clarity smoothing
+        feature_mask: usize,
+        average_buffer_size: usize,
+
+        // Alpha:
+        // 0.1	Very smooth, slow reaction	Stable pitch display
+        // 0.3	Moderate smoothing	        Fast UI with mild damping
+        // 0.5+	Very reactive, less stable	Real-time effects, fast glides
+        // 1.0	No smoothing (raw signal)	Rarely useful unless you like chaos
+        clarity_alpha: f64,
     ) -> YinPitchDetector {
         // /**
         //  * This works OK now but G3 string is still noisy.
@@ -493,10 +510,6 @@ impl YinPitchDetector {
         //  */
         let q = 0.707; // classic Butterworth
 
-        fn is_bit_set(value: usize, bit: u32) -> bool {
-            (value & (1 << bit)) != 0
-        }
-
         let mut filters = Vec::new();
 
         if is_bit_set(filter_mask, 0) {
@@ -527,15 +540,10 @@ impl YinPitchDetector {
             yin,
             sample_rate,
             filters,
+            feature_mask,
             fft,
-            fft_refine,
-            freq_smoother: FrequencySmoother::new(3),
-            // Alpha:
-            // 0.1	Very smooth, slow reaction	Stable pitch display
-            // 0.3	Moderate smoothing	        Fast UI with mild damping
-            // 0.5+	Very reactive, less stable	Real-time effects, fast glides
-            // 1.0	No smoothing (raw signal)	Rarely useful unless you like chaos
-            clarity_smoother: ExpMovingAverage::new(0.4),
+            freq_smoother: FrequencySmoother::new(average_buffer_size),
+            clarity_smoother: ExpMovingAverage::new(clarity_alpha),
         }
     }
 
@@ -584,17 +592,24 @@ impl PitchFindTrait for YinPitchDetector {
         if estimated_freq != f64::INFINITY {
             let mut freq: f64 = -1.0;
 
-            if self.fft_refine {
+            if is_bit_set(self.feature_mask, 0) {
+                // FFT refinement
                 let buf_f32: Vec<f32> = buf.iter().map(|&x| x as f32).collect();
                 let refined_freq = self.fft_refine_pitch(&buf_f32, estimated_freq as f32);
                 if refined_freq.is_some() {
                     freq = refined_freq.unwrap() as f64;
                 }
             } else {
+                // No FFT refinement
                 freq = estimated_freq;
             }
 
-            if freq > 0.0 {
+            if freq < 0.0 {
+                return None;
+            }
+
+            if is_bit_set(self.feature_mask, 1) {
+                // Averaging
                 self.freq_smoother.push(freq);
 
                 if let Some(mean_freq) = self.freq_smoother.average() {
@@ -602,23 +617,28 @@ impl PitchFindTrait for YinPitchDetector {
                         // Try to prevent fluctuations
                         return None;
                     }
-                    //let stable_freq = freq;
-                    let stable_freq = self.clarity_smoother.update(freq);
-
-                    // Find closest note
-                    let (closest_note, closest_freq, distance) =
-                        find_closest_note(stable_freq, tuning).unwrap();
-                    let cents = 1200.0 * (stable_freq / closest_freq).log2();
-                    return Some(PitchResult::new(
-                        stable_freq,
-                        tuning.to_string(),
-                        closest_note,
-                        closest_freq,
-                        distance,
-                        cents,
-                    ));
+                    // Note, freq is deliberately not set to mean_freq
+                    // This step is just to prevent fluctuations
+                    //freq = mean_freq;
                 }
             }
+
+            if is_bit_set(self.feature_mask, 2) {
+                // Clarity smoothing
+                freq = self.clarity_smoother.update(freq);
+            }
+
+            // Find closest note
+            let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
+            let cents = 1200.0 * (freq / closest_freq).log2();
+            return Some(PitchResult::new(
+                freq,
+                tuning.to_string(),
+                closest_note,
+                closest_freq,
+                distance,
+                cents,
+            ));
         }
         None
     }
@@ -1127,9 +1147,11 @@ mod tests {
             60.0,  // min frequency
             500.0, // max frequency
             sr as usize,
-            0b111110, // filter mask
             4096,     // block size
-            false,    // fft_refine
+            0b111110, // filter mask
+            0b111000, // feature mask
+            3,        // averaging buffer size
+            0.4,      // clarity alpha
         );
         let frame_size = 4096;
         let offset = 0; // You can slide this later
@@ -1311,13 +1333,15 @@ mod tests {
         fraction_to_check: usize,
     ) {
         let mut yin = YinPitchDetector::new(
-            0.15,  // threshold
+            0.1,   // threshold
             60.0,  // min frequency
             500.0, // max frequency
             sample_rate,
-            0b111110, // filter mask,
-            4096,     // block
-            false,    // fft_refine
+            4096,     // block size
+            0b111110, // filter mask
+            0b111000, // feature mask
+            3,        // averaging buffer size
+            0.4,      // clarity alpha
         );
 
         let frame_size = 2048;

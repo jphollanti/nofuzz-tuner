@@ -38,9 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.freq_min,
                 config.freq_max,
                 sample_rate,
+                4096,
                 set_bits(&[0, 1, 2, 3, 4, 5]), // highpass, notch50, notch60, notch100, notch120, lowpass
-                4024,
-                false,
+                set_bits(&[0, 1, 2]),          // fft refinement, averaging and clarity smoothing
+                3,                             // average buffer size
+                0.4,                           // alpha clarity
             );
             Box::new(yin)
         }
