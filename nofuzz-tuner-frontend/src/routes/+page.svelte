@@ -191,7 +191,7 @@
 	const buildVersion =
 		PUBLIC.PUBLIC_BUILD_VERSION
 		?? `dev-${new Date().toISOString()}`;
-	
+	const isDev = buildVersion.startsWith('dev-');
 	/* Tooltip visibility */
 	let open = false;
 
@@ -245,6 +245,9 @@
 		}
 		ctx_dynamic.clearRect(0, 0, canvas_dynamic.width, canvas_dynamic.height);
 	}
+	
+	const DPR = window.devicePixelRatio || 1;
+	const radius = 200 * DPR;
 
 	function drawScale() {
 		if (!canvas_static || !ctx_static || !canvas_container) {
@@ -256,7 +259,7 @@
 		// Set canvas dimensions
 
 		const { clientWidth: w, clientHeight: h } = canvas_container;
-		const DPR = window.devicePixelRatio || 1;
+		
 		const pixW = Math.floor(w * DPR);
 		const pixH = Math.floor(h * DPR);
 
@@ -285,12 +288,12 @@
 		ctx.stroke();
 
 		// circle
-		const radius = 200 * DPR;
 		const centerY = drawScaleYMax + radius;
 		ctx.beginPath();
 		ctx.strokeStyle = scaleColour;
 		ctx.lineWidth = lineWidth*2;
-		ctx.arc(centerX, centerY, radius, Math.PI * 1.35, Math.PI * 1.65);
+		ctx.arc(centerX, centerY, radius, Math.PI * 1.332, Math.PI * 1.668);
+		//ctx.arc(centerX, centerY, radius, Math.PI, Math.PI * 2);
 		ctx.stroke();
 
 		// Triangle (nudge) at the bottom of the circle
@@ -367,8 +370,8 @@
 		// Helpers
 		const { clientWidth: w, clientHeight: h } = canvas_container;
 		const DPR = window.devicePixelRatio || 1;
-		const W    = Math.floor(w * DPR);
-		const H    = Math.floor(h * DPR);
+		const W = Math.floor(w * DPR);
+		const H = Math.floor(h * DPR);
 
 		ctx_dynamic.clearRect(0, 0, W, H);
 		const ctx = ctx_dynamic;
@@ -455,9 +458,11 @@
 			ctx.translate(centerX, centerY); // Move origin to pivot point
 			ctx.rotate(angle);               // Rotate needle based on tuning
 
+			const lineWidth = 2 * DPR;
+
 			ctx.beginPath();
-			ctx.moveTo(0, -length * 0.435);                // Pivot point
-			ctx.lineTo(0, -length * 0.9245);          // Needle length upwards
+			ctx.moveTo(0, -radius-lineWidth); // Needle tip
+			ctx.lineTo(0, -length-radius); // Needle length upwards
 			ctx.strokeStyle = colour;
 			ctx.lineWidth = 2 * DPR;
 			ctx.stroke();
@@ -466,11 +471,27 @@
 		}
 
 		// Draw the linear scale
-		const scaleY = H / 2;
-		const drawScaleYMax = scaleY + (H * .20);
-		const radius = 200 * DPR;
+		// const drawScaleYMax = midY + (H * .20);
+		// const radius = 200 * DPR;
+		// const needleY = drawScaleYMax + radius;
+		//const needleY = drawScaleYMax;
+		//const needleY = midY + H * 0.5;
+		//const needleY = midY + radius;
+		// const scaleY = H / 2;
+		// const drawScaleYMax = scaleY; // + (H * .20);
+		// const needleY = midY + H * 0.25 + 40 * DPR;
+		const pixH = Math.floor(h * DPR);
+		const height = pixH;
+		const scaleY = height / 2;
+		const drawScaleYMax = scaleY + (height * .20);
 		const needleY = drawScaleYMax + radius;
-		drawNeedle(cents, midX, needleY, H * 0.81, colour);
+
+		const drawScaleYMin = scaleY - (height * .20);
+		const length = drawScaleYMax - drawScaleYMin;
+		// console.log('length', length);
+		// console.log('radius', radius);
+		
+		drawNeedle(cents, midX, needleY, length, colour);
 	}
 
 
@@ -497,9 +518,11 @@
 		ctx_dynamic.clearRect(0, 0, pixW, pixH);
 
 		// Testing
-		const tuningTo = { note: 'E2', freq: 82.41 };
-		//drawIndicator(tuningTo, -1.0);
-		updateIndicator(tuningTo, -1.0);
+		if (isDev) {
+			const tuningTo = { note: 'E2', freq: 82.41 };
+			//drawIndicator(tuningTo, -1.0);
+			updateIndicator(tuningTo, 0.5);
+		}
 	}
 
 	async function loadWasm() {
@@ -679,7 +702,9 @@
 
 			if (lastSampleTime + TIMEOUT_MS < performance.now()) {
 				// no audio for a while, reset the detector
-				resetCanvas();
+				if (!isDev) {
+					resetCanvas();
+				}
 				lastSampleTime = performance.now();
 			}
 
