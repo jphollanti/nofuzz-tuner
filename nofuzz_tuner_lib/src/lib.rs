@@ -21,10 +21,9 @@ use js_sys::Float64Array;
 use std::cmp::Ordering;
 use wasm_bindgen::prelude::*;
 
+use once_cell::sync::Lazy;
 use serde_wasm_bindgen::to_value;
-use once_cell::sync::Lazy;  
 use std::sync::Mutex;
-
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -61,8 +60,7 @@ pub fn add_tuning_core(
     }
 
     // 2. Build the inner { note → freq } map
-    let inner: HashMap<String, f64> =
-        note_names.into_iter().zip(freqs.into_iter()).collect();
+    let inner: HashMap<String, f64> = note_names.into_iter().zip(freqs).collect();
 
     // 3. Insert (or replace) in the global map
     let mut store = TUNINGS
@@ -82,7 +80,7 @@ pub fn add_tuning(
     id: String,
     _label: String,
     note_names: Box<[JsValue]>,
-    freqs: Box<[f64]>,  
+    freqs: Box<[f64]>,
 ) -> Result<JsValue, JsValue> {
     if note_names.len() != freqs.len() {
         return Err(JsValue::from_str("note_names and freqs length mismatch"));
@@ -102,15 +100,13 @@ pub fn add_tuning(
     tunings.insert(id, inner);
 
     // return the whole structure back to JS
-    to_value(&*tunings).map_err(|e| JsValue::from(e))
+    to_value(&*tunings).map_err(JsValue::from)
 }
 
 /// Return the whole global map as a JS object
 #[wasm_bindgen]
 pub fn get_tunings() -> JsValue {
-    let tunings = TUNINGS
-        .lock()
-        .expect("TUNINGS mutex poisoned");
+    let tunings = TUNINGS.lock().expect("TUNINGS mutex poisoned");
 
     to_value(&*tunings).expect("serde_wasm_bindgen::to_value failed")
 }
@@ -272,9 +268,7 @@ pub trait PitchFindTrait: Send + Sync {
 }
 
 fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
-    let tunings = TUNINGS
-        .lock()
-        .expect("TUNINGS mutex poisoned");
+    let tunings = TUNINGS.lock().expect("TUNINGS mutex poisoned");
     let strings = tunings.get(tuning)?;
 
     let (note, target_freq) = strings.iter().min_by(|a, b| {
@@ -874,20 +868,47 @@ mod tests {
 
     fn add_tunings() {
         add_tuning_core(
-            "standard-e".into(), 
+            "standard-e".into(),
             "Standard E".into(),
-            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
-            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+            vec![
+                "E2".into(),
+                "A2".into(),
+                "D3".into(),
+                "G3".into(),
+                "B3".into(),
+                "E4".into(),
+            ],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
         add_tuning_core(
-            "flat-e".into(), 
+            "flat-e".into(),
             "Flat E".into(),
-            vec!["Eb2".into(), "Ab2".into(), "Db3".into(), "Gb3".into(), "Bb3".into(), "Eb4".into()],
-            vec![77.78, 103.83, 138.59, 196.00, 246.94, 329.63]).unwrap();
+            vec![
+                "Eb2".into(),
+                "Ab2".into(),
+                "Db3".into(),
+                "Gb3".into(),
+                "Bb3".into(),
+                "Eb4".into(),
+            ],
+            vec![77.78, 103.83, 138.59, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
         add_tuning_core(
-            "drop-d".into(), 
+            "drop-d".into(),
             "Drop D".into(),
-            vec!["D2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
-            vec![73.42, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+            vec![
+                "D2".into(),
+                "A2".into(),
+                "D3".into(),
+                "G3".into(),
+                "B3".into(),
+                "E4".into(),
+            ],
+            vec![73.42, 110.00, 146.83, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
     }
 
     /// Helper to unwrap the Option and compare String & f64 fields within epsilon.
@@ -1033,11 +1054,9 @@ mod tests {
     #[test]
     fn tuning_map_has_expected_keys() {
         add_tunings();
-        
-        let tunings = TUNINGS
-            .lock()
-            .expect("Failed to lock TUNINGS");
-        for key in &["standard-e", "flat-e", "drop-d"] {    
+
+        let tunings = TUNINGS.lock().expect("Failed to lock TUNINGS");
+        for key in &["standard-e", "flat-e", "drop-d"] {
             assert!(
                 tunings.contains_key(*key),
                 "TUNINGS missing expected key `{}`",
@@ -1046,7 +1065,7 @@ mod tests {
         }
     }
 
-    use super::{PitchFindTrait, YinPitchDetector, add_tuning_core};
+    use super::{add_tuning_core, PitchFindTrait, YinPitchDetector};
     use hound::WavReader;
     use std::fs::File;
     use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
@@ -1212,13 +1231,22 @@ mod tests {
         const FILE: &str = "test_assets/82.wav";
         let sr: u32 = wav_get_sample_rate(FILE);
         let samples = read_wav_as_f32(FILE);
-        
+
         add_tuning_core(
-            "standard-e".into(), 
+            "standard-e".into(),
             "Standard E".into(),
-            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
-            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
-        
+            vec![
+                "E2".into(),
+                "A2".into(),
+                "D3".into(),
+                "G3".into(),
+                "B3".into(),
+                "E4".into(),
+            ],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
+
         let mut yin = YinPitchDetector::new(
             0.1,   // threshold
             60.0,  // min frequency
@@ -1410,11 +1438,20 @@ mod tests {
         fraction_to_check: usize,
     ) {
         add_tuning_core(
-            "standard-e".into(), 
+            "standard-e".into(),
             "Standard E".into(),
-            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
-            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
-        
+            vec![
+                "E2".into(),
+                "A2".into(),
+                "D3".into(),
+                "G3".into(),
+                "B3".into(),
+                "E4".into(),
+            ],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
+
         let mut yin = YinPitchDetector::new(
             0.1,   // threshold
             60.0,  // min frequency
