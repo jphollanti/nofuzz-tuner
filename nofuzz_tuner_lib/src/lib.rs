@@ -13,7 +13,6 @@ use audioviz::spectrum::{
     stream::Stream,
 };
 
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -21,6 +20,11 @@ use serde::{Deserialize, Serialize};
 use js_sys::Float64Array;
 use std::cmp::Ordering;
 use wasm_bindgen::prelude::*;
+
+use serde_wasm_bindgen::to_value;
+use once_cell::sync::Lazy;  
+use std::sync::Mutex;
+
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -33,56 +37,82 @@ fn is_bit_set(value: usize, bit: u32) -> bool {
 }
 
 // Guitar string frequencies cheat-sheet:
-lazy_static! {
-    pub static ref TUNINGS: HashMap<&'static str, HashMap<&'static str, f64>> = {
-        let mut tunings = HashMap::new();
-
-        // ── 1. Standard E ─────────────────────────────
-        tunings.insert("standard-e", HashMap::from([
-            ("E2", 82.41),
-            ("A2", 110.00),
-            ("D3", 146.83),
-            ("G3", 196.00),
-            ("B3", 246.94),
-            ("E4", 329.63),
-        ]));
-
-        // ── 2. Standard Eb / “Half‑step‑down” ─────────
-        tunings.insert("flat-e", HashMap::from([
-            ("Eb2", 77.78),
-            ("Ab2", 103.83),
-            ("Db3", 138.59),
-            ("Gb3", 185.00),
-            ("Bb3", 233.08),
-            ("Eb4", 311.13),
-        ]));
-
-        // ── 3. Drop‑D ────────────────────────────────
-        tunings.insert("drop-d", HashMap::from([
-            ("D2", 73.42),
-            ("A2", 110.00),
-            ("D3", 146.83),
-            ("G3", 196.00),
-            ("B3", 246.94),
-            ("E4", 329.63),
-        ]));
-
-        // -- 4. Ukulele GCEA ───────────────────────────
-        tunings.insert("ukulele-gcea", HashMap::from([
-            ("G4", 392.00),
-            ("C4", 261.63),
-            ("E4", 329.63),
-            ("A4", 440.00),
-        ]));
-
-        tunings
-    };
-}
+pub static TUNINGS: Lazy<Mutex<HashMap<String, HashMap<String, f64>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 // Helpers for bitmasking
 // Used in YinPitchDetector::new() to select filters
 pub fn set_bits(positions: &[u32]) -> usize {
     positions.iter().fold(0, |acc, &bit| acc | (1 << bit))
+}
+
+// Add tuning to TUNINGS
+
+// Plain Rust types only.
+pub fn add_tuning_core(
+    id: String,
+    _label: String,
+    note_names: Vec<String>,
+    freqs: Vec<f64>,
+) -> Result<(), String> {
+    // 1. Basic sanity-check
+    if note_names.len() != freqs.len() {
+        return Err("note_names and freqs length mismatch".into());
+    }
+
+    // 2. Build the inner { note → freq } map
+    let inner: HashMap<String, f64> =
+        note_names.into_iter().zip(freqs.into_iter()).collect();
+
+    // 3. Insert (or replace) in the global map
+    let mut store = TUNINGS
+        .lock()
+        .map_err(|_| "TUNINGS mutex poisoned".to_string())?;
+    store.insert(id, inner);
+
+    Ok(())
+}
+
+// Parameters:
+// - tuning: name of the tuning
+// - id: identifier for the tuning
+// - notes: a vector of tuples containing note names and their frequencies
+#[wasm_bindgen]
+pub fn add_tuning(
+    id: String,
+    _label: String,
+    note_names: Box<[JsValue]>,
+    freqs: Box<[f64]>,  
+) -> Result<JsValue, JsValue> {
+    if note_names.len() != freqs.len() {
+        return Err(JsValue::from_str("note_names and freqs length mismatch"));
+    }
+    // build the inner { note -> freq } map
+    let inner: HashMap<String, f64> = note_names
+        .into_vec()
+        .into_iter()
+        .zip(freqs.into_vec())
+        .map(|(n, f)| (n.as_string().unwrap(), f))
+        .collect();
+
+    // grab the mutex and insert/replace
+    let mut tunings = TUNINGS
+        .lock()
+        .map_err(|_| JsValue::from_str("TUNINGS mutex poisoned"))?;
+    tunings.insert(id, inner);
+
+    // return the whole structure back to JS
+    to_value(&*tunings).map_err(|e| JsValue::from(e))
+}
+
+/// Return the whole global map as a JS object
+#[wasm_bindgen]
+pub fn get_tunings() -> JsValue {
+    let tunings = TUNINGS
+        .lock()
+        .expect("TUNINGS mutex poisoned");
+
+    to_value(&*tunings).expect("serde_wasm_bindgen::to_value failed")
 }
 
 #[wasm_bindgen]
@@ -242,7 +272,10 @@ pub trait PitchFindTrait: Send + Sync {
 }
 
 fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
-    let strings = TUNINGS.get(tuning)?;
+    let tunings = TUNINGS
+        .lock()
+        .expect("TUNINGS mutex poisoned");
+    let strings = tunings.get(tuning)?;
 
     let (note, target_freq) = strings.iter().min_by(|a, b| {
         let da = (a.1 - freq).abs();
@@ -839,6 +872,24 @@ impl PitchFindTrait for FftPitchDetector {
 mod tests {
     use super::{find_closest_note, TUNINGS};
 
+    fn add_tunings() {
+        add_tuning_core(
+            "standard-e".into(), 
+            "Standard E".into(),
+            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+        add_tuning_core(
+            "flat-e".into(), 
+            "Flat E".into(),
+            vec!["Eb2".into(), "Ab2".into(), "Db3".into(), "Gb3".into(), "Bb3".into(), "Eb4".into()],
+            vec![77.78, 103.83, 138.59, 196.00, 246.94, 329.63]).unwrap();
+        add_tuning_core(
+            "drop-d".into(), 
+            "Drop D".into(),
+            vec!["D2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
+            vec![73.42, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+    }
+
     /// Helper to unwrap the Option and compare String & f64 fields within epsilon.
     fn assert_note_result(
         result: Option<(String, f64, f64)>,
@@ -846,6 +897,7 @@ mod tests {
         want_target: f64,
         want_dist: f64,
     ) {
+        add_tunings();
         let (note, target, dist) = result.expect("expected Some(...)");
         assert_eq!(note, want_note);
         assert!(
@@ -864,6 +916,7 @@ mod tests {
 
     #[test]
     fn standard_e_exact_match() {
+        add_tunings();
         assert_note_result(
             find_closest_note(82.41_f64, "standard-e"),
             "E2",
@@ -904,6 +957,7 @@ mod tests {
 
     #[test]
     fn standard_e_off_by_a_bit() {
+        add_tunings();
         assert_note_result(
             find_closest_note(83.0_f64, "standard-e"),
             "E2",
@@ -944,6 +998,7 @@ mod tests {
 
     #[test]
     fn drop_d_low_string() {
+        add_tunings();
         assert_note_result(
             find_closest_note(73.42_f64, "drop-d"),
             "D2",
@@ -960,6 +1015,7 @@ mod tests {
 
     #[test]
     fn flat_e_tuning() {
+        add_tunings();
         assert_note_result(
             find_closest_note(78.0_f64, "flat-e"),
             "Eb2",
@@ -970,21 +1026,27 @@ mod tests {
 
     #[test]
     fn unknown_tuning_returns_none() {
+        add_tunings();
         assert!(find_closest_note(100.0_f64, "no-such-tuning").is_none());
     }
 
     #[test]
     fn tuning_map_has_expected_keys() {
-        for key in &["standard-e", "flat-e", "drop-d"] {
+        add_tunings();
+        
+        let tunings = TUNINGS
+            .lock()
+            .expect("Failed to lock TUNINGS");
+        for key in &["standard-e", "flat-e", "drop-d"] {    
             assert!(
-                TUNINGS.contains_key(*key),
+                tunings.contains_key(*key),
                 "TUNINGS missing expected key `{}`",
                 key
             );
         }
     }
 
-    use super::{PitchFindTrait, YinPitchDetector};
+    use super::{PitchFindTrait, YinPitchDetector, add_tuning_core};
     use hound::WavReader;
     use std::fs::File;
     use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
@@ -1150,6 +1212,13 @@ mod tests {
         const FILE: &str = "test_assets/82.wav";
         let sr: u32 = wav_get_sample_rate(FILE);
         let samples = read_wav_as_f32(FILE);
+        
+        add_tuning_core(
+            "standard-e".into(), 
+            "Standard E".into(),
+            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+        
         let mut yin = YinPitchDetector::new(
             0.1,   // threshold
             60.0,  // min frequency
@@ -1340,6 +1409,12 @@ mod tests {
         note: &str,
         fraction_to_check: usize,
     ) {
+        add_tuning_core(
+            "standard-e".into(), 
+            "Standard E".into(),
+            vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
+        
         let mut yin = YinPitchDetector::new(
             0.1,   // threshold
             60.0,  // min frequency

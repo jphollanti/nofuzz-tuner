@@ -149,6 +149,7 @@
 	type TuningPreset = {
 		id: string;
 		label: string;
+		note_names: string[];
 		freqs: number[];
 		detectors: Map<number, PitchDetector>;
 		stringDetector: StringDetector | null;
@@ -159,6 +160,7 @@
 		{ 
 			id: 'standard-e', 
 			label: 'Standard E', 
+			note_names: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
 			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63], 
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
@@ -166,6 +168,7 @@
 		{ 
 			id: 'flat-e',     
 			label: 'Eb / Half-step Down', 
+			note_names: ['Eb2', 'Ab2', 'Db3', 'Gb3', 'Bb3', 'Eb4'],
 			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13], 
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
@@ -173,6 +176,7 @@
 		{ 
 			id: 'drop-d',     
 			label: 'Drop D', 
+			note_names: ['D2', 'A2', 'D3', 'G3', 'B3', 'E4'],
 			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63], 
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
@@ -181,6 +185,7 @@
 		{ 
 			id: 'ukulele-gcea', 
 			label: 'Ukulele GCEA', 
+			note_names: ['G4', 'C4', 'E4', 'A4'],
 			freqs: [392.00, 261.63, 329.63, 440.00], 
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
@@ -532,6 +537,20 @@
 		YinPitchDetector = pkg.YinPitchDetector;
 		// Todo: use this from Rust instead of setBits
 		// set_bits = pkg.set_bits_js;
+
+		// add all tunings to the package
+		for (const tuning of tunings) {
+			const freqs = new Float64Array(tuning.freqs);
+			pkg.add_tuning(
+				tuning.id, 
+				tuning.label,
+				tuning.note_names,
+				freqs);
+			tuning.detectors = new Map<number, PitchDetector>();
+		}
+
+		const t2 = pkg.get_tunings();
+		console.log('tunings', t2);
 	}
 
 	async function unlockAudio(ctx: AudioContext | null) {

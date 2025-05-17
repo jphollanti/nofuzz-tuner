@@ -9,6 +9,7 @@ use nofuzz_tuner_lib::FftPitchDetector;
 use nofuzz_tuner_lib::McleodPitchDetector;
 use nofuzz_tuner_lib::PitchFindTrait;
 use nofuzz_tuner_lib::YinPitchDetector;
+use nofuzz_tuner_lib::add_tuning_core;
 use std::thread;
 use std::time::Duration;
 
@@ -29,6 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_rate: supported_config.sample_rate(),
         buffer_size: cpal::BufferSize::Fixed(buffer_size),
     };
+
+    // add tuning to the config
+    add_tuning_core(
+        "standard-e".into(), 
+        "Standard E".into(),
+        vec!["E2".into(), "A2".into(), "D3".into(), "G3".into(), "B3".into(), "E4".into()],
+        vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63]).unwrap();
 
     let sample_rate = stream_config.sample_rate.0 as usize;
     let detector: Box<dyn PitchFindTrait> = match config.pitch_detection.as_str() {
