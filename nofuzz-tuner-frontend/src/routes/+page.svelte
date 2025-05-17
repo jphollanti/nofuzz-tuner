@@ -307,6 +307,50 @@
 			.getPropertyValue('--scale-fg').trim() || '#fff';
 
 	
+	let latestTuningTo = { note: "A" }; // whatever your app feeds in
+
+	/**
+	 * Call this whenever new pitch data arrives.
+	 * The needle will glide from its current position
+	 * to the new one instead of jumping.
+	 */
+	function updateIndicator(tuningTo:any, newCents:number) {
+		latestTuningTo = tuningTo;
+
+		// if the target changed, start / restart tween
+		if (newCents !== targetCents) {
+			startCents = currentCents;
+			targetCents = newCents;
+			tweenStart = performance.now();
+			requestAnimationFrame(tick);
+		}
+	}
+	// ------------- Animation state -------------
+	let currentCents = 0;           // where the needle is right now
+	let targetCents  = 0;           // where we want it to end up
+	let startCents   = 0;           // value at the moment the tween starts
+	let tweenStart   = 0;           // time (ms) tween started
+	const TWEEN_MS   = 180;         // duration of one glide (adjust to taste)
+
+	// simple ease-out (feels a bit “springy”, but cheap)
+	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+	// ------------  Main animation loop ---------
+	function tick(now: number) {
+		// progress 0‥1
+		const t = Math.min(1, (now - tweenStart) / TWEEN_MS);
+		const eased = easeOutCubic(t);
+
+		// lerp between the start value and the latest target
+		const centsNow = startCents + (targetCents - startCents) * eased;
+
+		drawIndicator(latestTuningTo, centsNow);   // <-- your original painter
+
+		currentCents = centsNow;                   // keep state in sync
+
+		if (t < 1) requestAnimationFrame(tick);    // still gliding
+	}
+
 	// Function to draw the indicator at a specific value
 	// driven by signed cents (–50 … +50).
 	function drawIndicator(tuningTo: any, cents: number) {
@@ -327,8 +371,6 @@
 		const sign   = Math.sign(cents) || 1; // –1 for flat, +1 for sharp (treat 0 as +)
 		const absC   = Math.abs(cents);
 		const clampC = Math.min(range, absC);
-
-		let indicatorX = midX + (clampC / range) * midX * sign;
 
 		// Note label
 		const NOTE_COLOR = absC <= 2 ? '#4CAF50' : getScaleColour();
@@ -392,13 +434,6 @@
 			}
 		}
 
-		// Vertical line
-		// ctx.beginPath();
-		// ctx.strokeStyle = colour;
-		// ctx.lineWidth   = 2 * DPR;
-		// ctx.moveTo(indicatorX, midY - H * 0.07);
-		// ctx.lineTo(indicatorX, midY + H * 0.07);
-		// ctx.stroke();
 		function drawNeedle(cents:number, centerX:number, centerY:number, length:number, colour:string) {
 			// Clamp cents to the expected range
 			cents = Math.max(-30, Math.min(30, cents));
@@ -422,28 +457,12 @@
 			ctx.restore();
 		}
 
-		
 		// Draw the linear scale
 		const scaleY = H / 2;
 		const drawScaleYMax = scaleY + (H * .20);
 		const radius = 200 * DPR;
 		const needleY = drawScaleYMax + radius;
 		drawNeedle(cents, midX, needleY, H * 0.81, colour);
-
-		// Display the cents value
-		// const label = `${cents > 0 ? '+' : ''}${cents.toFixed(1)} ¢`;
-		// ctx.font = `${12 * DPR}px Arial`;
-		// ctx.fillStyle = 'white';
-
-		// const boxW   = ctx.measureText(label).width + H * 0.03;
-		// const labelX = Math.max(boxW / 2, Math.min(W - boxW / 2, indicatorX));
-
-		// ctx.fillStyle = '#121212';
-		// ctx.fillRect(labelX - boxW / 2, midY + H * 0.10, boxW, 30);
-
-		// ctx.fillStyle = 'white';
-		// ctx.textBaseline = 'middle';
-		// ctx.fillText(label, labelX, midY + H * 0.13);
 	}
 
 
@@ -471,7 +490,8 @@
 
 		// Testing
 		const tuningTo = { note: 'E2', freq: 82.41 };
-		drawIndicator(tuningTo, -1.0);
+		//drawIndicator(tuningTo, -1.0);
+		updateIndicator(tuningTo, -1.0);
 	}
 
 	async function loadWasm() {
@@ -585,7 +605,17 @@
 					//  * let alpha = if note == "G" { 0.2 } else { 0.4 };
 					alpha = 0.2;
 					features = setBits(0, 1, 2); // 0: fft refinement, 1: Averaging
-					avgBufferSize = 10; // 5 samples
+					avgBufferSize = 5;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
+				}
+				if (freq === 82.41) {
+					features = setBits(0, 2); // 0: fft refinement, 1: Averaging
+					//avgBufferSize = 5;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
+				}
+				if (freq === 146.83) {
+					features = setBits(0, 1, 2); // 0: fft refinement, 1: Averaging
+					avgBufferSize = 5;
 					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
 				}
 				
@@ -666,7 +696,8 @@
 					const cents = tuningTo.cents;
 					start = performance.now();
 					resetCanvas();
-					drawIndicator(tuningTo, cents);
+					// drawIndicator(tuningTo, cents);
+					updateIndicator(tuningTo, cents);
 					draw_Array.push(performance.now() - start);
 					if (draw_Array.length > 10) {
 						drawPerformance = draw_Array.reduce((a, b) => a + b, 0) / draw_Array.length;
