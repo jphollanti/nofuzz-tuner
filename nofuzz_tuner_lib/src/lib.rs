@@ -67,6 +67,14 @@ lazy_static! {
             ("E4", 329.63),
         ]));
 
+        // -- 4. Ukulele GCEA ───────────────────────────
+        tunings.insert("ukulele-gcea", HashMap::from([
+            ("G4", 392.00),
+            ("C4", 261.63),
+            ("E4", 329.63),
+            ("A4", 440.00),
+        ]));
+
         tunings
     };
 }

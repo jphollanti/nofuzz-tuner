@@ -177,6 +177,14 @@
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
 		},
+		// ukulele
+		{ 
+			id: 'ukulele-gcea', 
+			label: 'Ukulele GCEA', 
+			freqs: [392.00, 261.63, 329.63, 440.00], 
+			detectors: new Map<number, PitchDetector>(), 
+			stringDetector: null 
+		}
 	];
 	
 	// Variables
