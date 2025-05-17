@@ -647,6 +647,9 @@
 		let algo2_Array: number[] = [];
 		let draw_Array: number[] = [];
 
+		const TIMEOUT_MS = 3000;
+		let lastSampleTime = performance.now();
+
 		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
 			const chunk = data; // 128 samples
 
@@ -664,6 +667,12 @@
 			if (!tuningObject.stringDetector) {
 				console.error('String detector not found');
 				return;
+			}
+
+			if (lastSampleTime + TIMEOUT_MS < performance.now()) {
+				// no audio for a while, reset the detector
+				resetCanvas();
+				lastSampleTime = performance.now();
 			}
 
 			let start = performance.now();
@@ -703,6 +712,7 @@
 						drawPerformance = draw_Array.reduce((a, b) => a + b, 0) / draw_Array.length;
 						draw_Array = [];
 					}
+					lastSampleTime = performance.now();
 				}
 			}
 		};
