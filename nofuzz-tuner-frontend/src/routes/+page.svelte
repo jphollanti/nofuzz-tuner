@@ -189,7 +189,16 @@
 			freqs: [392.00, 261.63, 329.63, 440.00], 
 			detectors: new Map<number, PitchDetector>(), 
 			stringDetector: null 
-		}
+		}, 
+		// base
+		{ 
+			id: 'bass-e',     
+			label: 'Bass EADG', 
+			note_names: ['E1', 'A1', 'D2', 'G2'],
+			freqs: [41.20, 55.00, 73.42, 98.00], 
+			detectors: new Map<number, PitchDetector>(), 
+			stringDetector: null 
+		},
 	];
 	
 	// Variables
@@ -475,27 +484,13 @@
 			ctx.restore();
 		}
 
-		// Draw the linear scale
-		// const drawScaleYMax = midY + (H * .20);
-		// const radius = 200 * DPR;
-		// const needleY = drawScaleYMax + radius;
-		//const needleY = drawScaleYMax;
-		//const needleY = midY + H * 0.5;
-		//const needleY = midY + radius;
-		// const scaleY = H / 2;
-		// const drawScaleYMax = scaleY; // + (H * .20);
-		// const needleY = midY + H * 0.25 + 40 * DPR;
 		const pixH = Math.floor(h * DPR);
 		const height = pixH;
 		const scaleY = height / 2;
 		const drawScaleYMax = scaleY + (height * .20);
 		const needleY = drawScaleYMax + radius;
-
 		const drawScaleYMin = scaleY - (height * .20);
 		const length = drawScaleYMax - drawScaleYMin;
-		// console.log('length', length);
-		// console.log('radius', radius);
-		
 		drawNeedle(cents, midX, needleY, length, colour);
 	}
 
@@ -630,11 +625,9 @@
 		TUNINGS.forEach(tuning => {
 			const freqs = tuning.freqs;
 			let stringFilter = setBits(0, 5);
-			// console.log('-------------------------------------');
-			// console.log('settings for tuning', tuning.id);
+			console.log('-------------------------------------');
+			console.log('settings for tuning', tuning.id);
 			for (const freq of freqs) {
-				// console.log('- freq:', freq);
-				// console.log('  threshold:', threshold);
 				// Rough table to determine block size.
 				// Note		Freq (Hz)	Block Size @ 44.1 kHz
 				// E2		82.41		8192 (≈186 ms window)
@@ -644,9 +637,7 @@
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
 				let bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
-				// console.log('  block size:', bl);
 				const [fMin, fMax] = freqBounds(freq, 120);
-				// console.log('  freq min, max:', fMin, fMax);
 				let features = setBits(0); // 0: fft refinement, 1: Averaging, 2: Clarity
 				let avgBufferSize = 3; 
 				let alpha = 0.4;
@@ -668,7 +659,15 @@
 					avgBufferSize = 5;
 					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
 				}
-				
+				console.log('- string', tuning.note_names[freqs.indexOf(freq)]);
+				console.log('  freq:', freq);
+				console.log('  threshold:', threshold);
+				console.log('  block size:', bl);
+				console.log('  freq min, max:', fMin, fMax);
+				console.log('  features:', features);
+				console.log('  avgBufferSize:', avgBufferSize);
+				console.log('  alpha:', alpha);
+
 				const detector = new PitchDetector(
 					threshold, 
 					fMin, 
@@ -685,8 +684,10 @@
 				tuning.detectors.set(freq, detector);
 			}
 			// String detector
-			const sd_freq_min = 60;
-			const sd_freq_max = 500;
+			const minFreq = Math.min(...freqs);
+			const maxFreq = Math.max(...freqs);
+			const sd_freq_min = minFreq - 30;
+			const sd_freq_max = maxFreq + 30;
 			tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sampleRate, tuning);
 		});
 
