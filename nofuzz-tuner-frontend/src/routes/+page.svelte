@@ -869,7 +869,7 @@
 
 	{#if open}
 		<div class="bubble" id="build-id" transition:fade>
-			Build&nbsp;{buildVersion}<br>
+			Build&nbsp;{buildVersion}<br><br>
 			Sample rate: {sampleRate} Hz<br>
 			Performance:<br>
 			 - String Detector: {Math.trunc(algoPerformance_1)} ms<br>
