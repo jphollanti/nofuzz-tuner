@@ -156,7 +156,7 @@
 	};
 
 	/* Tuning selections */
-	const tunings: TuningPreset[] = [
+	const TUNINGS: TuningPreset[] = [
 		{ 
 			id: 'standard-e', 
 			label: 'Standard E', 
@@ -223,7 +223,7 @@
 	// updates on UI. But it seems to be very accurate. 
 	const fftBlockSizeMultiplier = 8;
 
-	export let tuning: string = tunings[0].id;
+	export let tuning: string = TUNINGS[0].id;
 
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
@@ -539,7 +539,7 @@
 		// set_bits = pkg.set_bits_js;
 
 		// add all tunings to the package
-		for (const tuning of tunings) {
+		for (const tuning of TUNINGS) {
 			const freqs = new Float64Array(tuning.freqs);
 			pkg.add_tuning(
 				tuning.id, 
@@ -627,7 +627,7 @@
 		// console.log('- quantum:', quantum);
 
 		// Build string specific detectors
-		tunings.forEach(tuning => {
+		TUNINGS.forEach(tuning => {
 			const freqs = tuning.freqs;
 			let stringFilter = setBits(0, 5);
 			// console.log('-------------------------------------');
@@ -691,7 +691,7 @@
 		});
 
 		let selectedTuning = tuning;
-		let tuningObject = tunings.find(t => t.id === tuning) || tunings[0];
+		let tuningObject = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
 
 		let algo1_Array: number[] = [];
 		let algo2_Array: number[] = [];
@@ -706,7 +706,7 @@
 			if (tuning !== selectedTuning) {
 				// tuning changed
 				// console.log('tuning changed to ', tuning);
-				const t2 = tunings.find(t => t.id === tuning) || tunings[0];
+				const t2 = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
 				resetDetectors(t2.detectors);
 				selectedTuning = t2.id;
 				tuningObject = t2;
@@ -839,7 +839,7 @@
 				<select
 					class="tuning-select"
 					bind:value={tuning}>
-					{#each tunings as t}
+					{#each TUNINGS as t}
 						<option value={t.id}>{t.label}</option>
 					{/each}
 				</select>
