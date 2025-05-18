@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { env as PUBLIC } from '$env/dynamic/public';
 	import { draw, fade } from 'svelte/transition';
-	import workletURL from '$lib/audio/pitch-worklet.js?url'; 
-	
+	import workletURL from '$lib/audio/pitch-worklet.js?url';
+	import PitchParticles from '$lib/PitchParticles.svelte';
+
+  	let particleCents: number | null = null;   // update this from your tuner logic
+
 	/* Data stuctures */
 	class PitchDetector {
 		detector: any;
@@ -206,6 +209,7 @@
 		PUBLIC.PUBLIC_BUILD_VERSION
 		?? `dev-${new Date().toISOString()}`;
 	const isDev = buildVersion.startsWith('dev-');
+
 	/* Tooltip visibility */
 	let open = false;
 
@@ -521,7 +525,8 @@
 		if (isDev) {
 			const tuningTo = { note: 'E2', freq: 82.41 };
 			//drawIndicator(tuningTo, -1.0);
-			updateIndicator(tuningTo, 0.5);
+			particleCents = 20;
+			updateIndicator(tuningTo, particleCents);
 		}
 	}
 
@@ -712,6 +717,7 @@
 				selectedTuning = t2.id;
 				tuningObject = t2;
 				resetCanvas();
+				particleCents = null;
 				drawScale();
 			}
 
@@ -724,6 +730,7 @@
 				// no audio for a while, reset the detector
 				if (!isDev) {
 					resetCanvas();
+					particleCents = null;
 				}
 				lastSampleTime = performance.now();
 			}
@@ -759,6 +766,7 @@
 					start = performance.now();
 					resetCanvas();
 					// drawIndicator(tuningTo, cents);
+					particleCents = cents;
 					updateIndicator(tuningTo, cents);
 					draw_Array.push(performance.now() - start);
 					if (draw_Array.length > 10) {
@@ -848,6 +856,7 @@
 		</div>
     </div>
 	<div id="canvas_container">
+		<PitchParticles cents={particleCents} trailStrength={0.8} particleCount={100} transparent/>
 		<canvas id="canvas_static"></canvas>
 		<canvas id="canvas_dynamic"></canvas>
 	</div>
