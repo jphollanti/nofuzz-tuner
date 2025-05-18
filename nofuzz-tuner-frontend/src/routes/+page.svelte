@@ -209,6 +209,7 @@
 		PUBLIC.PUBLIC_BUILD_VERSION
 		?? `dev-${new Date().toISOString()}`;
 	const isDev = buildVersion.startsWith('dev-');
+	let devUpdateTimer: any = null;
 
 	/* Tooltip visibility */
 	let open = false;
@@ -239,7 +240,7 @@
 	export let tuning: string = TUNINGS[0].id;
 
 	import { onMount, onDestroy } from 'svelte';
-	import { browser } from '$app/environment';
+	import { browser, dev } from '$app/environment';
 
 	let YinPitchDetector: any;
 	// Todo: use this from Rust instead of setBits
@@ -492,10 +493,14 @@
 		const height = pixH;
 		const scaleY = height / 2;
 		const drawScaleYMax = scaleY + (height * .20);
-		const needleY = drawScaleYMax + radius;
 		const drawScaleYMin = scaleY - (height * .20);
-		const length = drawScaleYMax - drawScaleYMin;
+		const needleY = drawScaleYMax + radius;
+		let length = drawScaleYMax - drawScaleYMin;
 		drawNeedle(cents, midX, needleY, length, colour);
+		
+		const white = NOTE_COLOR;
+		length = (drawScaleYMax - drawScaleYMin) * .9;
+		drawNeedle(cents, midX, needleY, length, getScaleColour());
 	}
 
 
@@ -520,13 +525,37 @@
 		canvas_dynamic.width = pixW;
 		canvas_dynamic.height = pixH;
 		ctx_dynamic.clearRect(0, 0, pixW, pixH);
+		particleCents = null;
 
 		// Testing
 		if (isDev) {
 			const tuningTo = { note: 'E2', freq: 82.41 };
-			//drawIndicator(tuningTo, -1.0);
-			particleCents = 20;
+			particleCents = -10;
 			updateIndicator(tuningTo, particleCents);
+			// if (devUpdateTimer) {
+			// 	clearInterval(devUpdateTimer);
+			// }
+			// const tuningTo = { note: 'E2', freq: 82.41 };
+			
+			// particleCents = -30;
+
+			// const STEP   = 10;
+			// const LIMIT  = 30;
+			// const PERIOD = 1000;
+
+			// let direction = 1;    // 1 = upward, -1 = downward triangle wave
+
+			// devUpdateTimer = setInterval(() => {
+			// 	particleCents = (particleCents ?? 0) + STEP * direction;
+			// 	updateIndicator(tuningTo, particleCents);
+			// 	// flip direction at the edges
+			// 	if (particleCents >=  LIMIT || particleCents <= -LIMIT) {
+			// 		direction *= -1;
+			// 	}
+			// }, PERIOD);
+
+			// particleCents = 20;
+			// updateIndicator(tuningTo, particleCents);
 		}
 	}
 
@@ -822,6 +851,9 @@
 		workletNode?.disconnect();
 		input?.disconnect();
 		audioContext?.close();
+		if (devUpdateTimer) {
+			clearInterval(devUpdateTimer);
+		}
 	});
 </script>
 
@@ -856,7 +888,7 @@
 		</div>
     </div>
 	<div id="canvas_container">
-		<PitchParticles cents={particleCents} trailStrength={0.8} particleCount={100} transparent/>
+		<PitchParticles cents={particleCents} trailStrength={0} particleCount={50} transparent/>
 		<canvas id="canvas_static"></canvas>
 		<canvas id="canvas_dynamic"></canvas>
 	</div>
