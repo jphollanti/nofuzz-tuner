@@ -529,30 +529,30 @@
 
 		// Testing
 		if (isDev) {
-			const tuningTo = { note: 'E2', freq: 82.41 };
-			particleCents = -10;
-			updateIndicator(tuningTo, particleCents);
-			// if (devUpdateTimer) {
-			// 	clearInterval(devUpdateTimer);
-			// }
 			// const tuningTo = { note: 'E2', freq: 82.41 };
+			// particleCents = -10;
+			// updateIndicator(tuningTo, particleCents);
+			if (devUpdateTimer) {
+				clearInterval(devUpdateTimer);
+			}
+			const tuningTo = { note: 'E2', freq: 82.41 };
 			
-			// particleCents = -30;
+			particleCents = -30;
 
-			// const STEP   = 10;
-			// const LIMIT  = 30;
-			// const PERIOD = 1000;
+			const STEP   = 10;
+			const LIMIT  = 30;
+			const PERIOD = 1000;
 
-			// let direction = 1;    // 1 = upward, -1 = downward triangle wave
+			let direction = 1;    // 1 = upward, -1 = downward triangle wave
 
-			// devUpdateTimer = setInterval(() => {
-			// 	particleCents = (particleCents ?? 0) + STEP * direction;
-			// 	updateIndicator(tuningTo, particleCents);
-			// 	// flip direction at the edges
-			// 	if (particleCents >=  LIMIT || particleCents <= -LIMIT) {
-			// 		direction *= -1;
-			// 	}
-			// }, PERIOD);
+			devUpdateTimer = setInterval(() => {
+				particleCents = (particleCents ?? 0) + STEP * direction;
+				updateIndicator(tuningTo, particleCents);
+				// flip direction at the edges
+				if (particleCents >=  LIMIT || particleCents <= -LIMIT) {
+					direction *= -1;
+				}
+			}, PERIOD);
 
 			// particleCents = 20;
 			// updateIndicator(tuningTo, particleCents);
