@@ -397,6 +397,13 @@
 
 	import { onMount, onDestroy } from 'svelte';
 	import { browser, dev } from '$app/environment';
+	import { trackInstrumentSelection, trackTuningSelection, trackAudioStart, trackTuningSuccess, trackSessionDuration } from '$lib/analytics';
+
+	// Session tracking
+	let sessionStartTime: number | null = null;
+	let lastInTuneNote: string | null = null;
+	let inTuneStartTime: number | null = null;
+	const IN_TUNE_THRESHOLD_MS = 2000; // Track as "tuned" after 2s within ±2 cents
 
 	let YinPitchDetector: any;
 	// Todo: use this from Rust instead of setBits
@@ -1005,6 +1012,12 @@
 		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 		input = audioContext.createMediaStreamSource(stream);
 
+		// Track successful audio start
+		if (!sessionStartTime) {
+			sessionStartTime = Date.now();
+			trackAudioStart();
+		}
+
 		// zero‑gain node so we don’t echo the mic to the speakers
 		const silence = audioContext.createGain();
 		silence.gain.value = 0;
@@ -1171,7 +1184,11 @@
 				// Rebuild detectors if preset changed
 				if (instrumentPreset !== selectedPreset) {
 					buildDetectors(instrumentPreset);
+					trackInstrumentSelection(instrumentPreset);
 					selectedPreset = instrumentPreset;
+				}
+				if (tuning !== selectedTuning) {
+					trackTuningSelection(tuning);
 				}
 				const t2 = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
 				resetDetectors(t2.detectors);
@@ -1228,6 +1245,23 @@
 					// Capture confidence and RMS for quality feedback
 					lastConfidence = pitch.confidence ?? 1.0;
 					lastRms = pitch.rms ?? 0;
+
+					// Track successful tuning (note held in tune for threshold time)
+					const isInTune = Math.abs(cents) <= 2;
+					const currentNote = tuningTo.note;
+					if (isInTune) {
+						if (lastInTuneNote === currentNote && inTuneStartTime) {
+							if (Date.now() - inTuneStartTime >= IN_TUNE_THRESHOLD_MS) {
+								trackTuningSuccess(currentNote);
+								inTuneStartTime = null; // Reset to avoid duplicate tracking
+							}
+						} else {
+							lastInTuneNote = currentNote;
+							inTuneStartTime = Date.now();
+						}
+					} else {
+						inTuneStartTime = null;
+					}
 
 					// Add to debug frequency history
 					currentDetectedFreq = pitch.freq;
@@ -1289,8 +1323,14 @@
 		await run();
 	});
 
-	// tidy up if the component unmounts 
+	// tidy up if the component unmounts
 	onDestroy(() => {
+		// Track session duration
+		if (sessionStartTime) {
+			const durationSeconds = Math.floor((Date.now() - sessionStartTime) / 1000);
+			trackSessionDuration(durationSeconds);
+		}
+
 		workletNode?.disconnect();
 		input?.disconnect();
 		audioContext?.close();
