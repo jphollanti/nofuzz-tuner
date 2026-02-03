@@ -131,41 +131,6 @@ impl InstrumentConfig {
             },
         }
     }
-
-    #[wasm_bindgen(getter)]
-    pub fn highpass_freq(&self) -> f64 {
-        self.highpass_freq
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn yin_threshold(&self) -> f64 {
-        self.yin_threshold
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn block_multiplier(&self) -> f64 {
-        self.block_multiplier
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn enable_agc(&self) -> bool {
-        self.enable_agc
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn enable_harmonic_correction(&self) -> bool {
-        self.enable_harmonic_correction
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn target_rms(&self) -> f64 {
-        self.target_rms
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn smoothing_alpha(&self) -> f64 {
-        self.smoothing_alpha
-    }
 }
 
 /// Get the default instrument config for a preset name
