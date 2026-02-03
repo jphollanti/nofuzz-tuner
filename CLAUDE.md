@@ -103,3 +103,6 @@ sudo apt-get install -y libasound2-dev
 - Use `if let Some(x) = opt` instead of `if opt.is_some() { opt.unwrap() }`
 - Use range contains: `(1.5..=4.0).contains(&x)` instead of `x >= 1.5 && x <= 4.0`
 - Add `#[derive(Default)]` with `#[default]` attribute for enums
+
+### wasm-bindgen duplicate getter/setter error
+Don't define explicit `#[wasm_bindgen(getter)]` methods for `pub` fields in `#[wasm_bindgen]` structs - they auto-generate getters. Duplicates cause: `error: There can be only one getter/setter definition`
