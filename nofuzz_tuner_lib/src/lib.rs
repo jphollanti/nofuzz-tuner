@@ -43,12 +43,12 @@ fn is_bit_set(value: usize, bit: u32) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum InstrumentPreset {
     #[default]
-    Acoustic,          // Acoustic guitar - clean fundamental, standard processing
-    ElectricClean,     // Electric guitar clean - weaker fundamental, needs harmonic correction
+    Acoustic, // Acoustic guitar - clean fundamental, standard processing
+    ElectricClean, // Electric guitar clean - weaker fundamental, needs harmonic correction
     ElectricDistorted, // Electric with distortion - lots of harmonics, aggressive filtering
-    Classical,         // Nylon string classical - softer attack, needs more smoothing
-    Bass,              // Bass guitar - extended low range, larger block sizes
-    ExtendedRange,     // 7/8 string guitars - very low frequencies
+    Classical,     // Nylon string classical - softer attack, needs more smoothing
+    Bass,          // Bass guitar - extended low range, larger block sizes
+    ExtendedRange, // 7/8 string guitars - very low frequencies
 }
 
 #[wasm_bindgen]
