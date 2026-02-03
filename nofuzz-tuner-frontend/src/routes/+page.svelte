@@ -856,24 +856,25 @@
 		ctx.font = `bold ${12 * DPR}px monospace`;
 		ctx.textAlign = 'left';
 		ctx.textBaseline = 'top';
-		ctx.fillText('Frequency Debug (last 15s)', margin.left, 10 * DPR);
+		ctx.fillText('Frequency Debug (last 15s)', margin.left, 8 * DPR);
 
-		// Legend
-		const legendY = 10 * DPR;
-		const legendX = W - margin.right - 200 * DPR;
+		// Legend - positioned below the title
+		const legendY = 22 * DPR;
+		const legendX = margin.left;
 		ctx.font = `${10 * DPR}px monospace`;
 
 		// Detected freq legend
 		ctx.fillStyle = '#FFEB3B';
-		ctx.fillRect(legendX, legendY, 12 * DPR, 12 * DPR);
+		ctx.fillRect(legendX, legendY, 10 * DPR, 10 * DPR);
 		ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-		ctx.fillText('Detected', legendX + 16 * DPR, legendY + 10 * DPR);
+		ctx.textBaseline = 'middle';
+		ctx.fillText('Detected', legendX + 14 * DPR, legendY + 5 * DPR);
 
 		// Target freq legend
 		ctx.fillStyle = '#4CAF50';
-		ctx.fillRect(legendX + 80 * DPR, legendY, 12 * DPR, 12 * DPR);
+		ctx.fillRect(legendX + 80 * DPR, legendY, 10 * DPR, 10 * DPR);
 		ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-		ctx.fillText('Target', legendX + 96 * DPR, legendY + 10 * DPR);
+		ctx.fillText('Target', legendX + 94 * DPR, legendY + 5 * DPR);
 	}
 
 	// Show/hide debug graph
