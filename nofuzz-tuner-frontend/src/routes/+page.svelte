@@ -323,6 +323,23 @@
 	let lastConfidence: number = 0;
 	let lastRms: number = 0;
 
+	// Debug frequency graph
+	type FrequencyDataPoint = {
+		timestamp: number;
+		freq: number;
+		confidence: number;
+	};
+	const DEBUG_HISTORY_SECONDS = 15;
+	const DEBUG_SAMPLE_INTERVAL_MS = 50; // Sample at most every 50ms to avoid too many points
+	let frequencyHistory: FrequencyDataPoint[] = [];
+	let lastDebugSampleTime = 0;
+	let currentDetectedFreq: number | null = null;
+	let debugCanvasVisible = false;
+
+	// Debug canvas refs
+	let canvas_debug: HTMLCanvasElement | null = null;
+	let ctx_debug: CanvasRenderingContext2D | null = null;
+
 	// Get instrument-specific configuration
 	function getInstrumentConfig(preset: InstrumentPresetType) {
 		const configs: Record<InstrumentPresetType, {
@@ -640,6 +657,246 @@
 		const white = NOTE_COLOR;
 		length = (drawScaleYMax - drawScaleYMin) * .9;
 		drawNeedle(cents, midX, needleY, length, getScaleColour());
+	}
+
+	// Add a frequency sample to the debug history
+	function addFrequencyToHistory(freq: number, confidence: number) {
+		const now = performance.now();
+		if (now - lastDebugSampleTime < DEBUG_SAMPLE_INTERVAL_MS) return;
+		lastDebugSampleTime = now;
+
+		frequencyHistory.push({ timestamp: now, freq, confidence });
+
+		// Remove old samples (older than DEBUG_HISTORY_SECONDS)
+		const cutoff = now - DEBUG_HISTORY_SECONDS * 1000;
+		while (frequencyHistory.length > 0 && frequencyHistory[0].timestamp < cutoff) {
+			frequencyHistory.shift();
+		}
+	}
+
+	// Draw the debug frequency graph
+	function drawDebugGraph() {
+		if (!canvas_debug || !ctx_debug) return;
+
+		const ctx = ctx_debug;
+		const DPR = window.devicePixelRatio || 1;
+		const W = canvas_debug.width;
+		const H = canvas_debug.height;
+
+		// Clear
+		ctx.clearRect(0, 0, W, H);
+
+		// Background
+		ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+		ctx.fillRect(0, 0, W, H);
+
+		// Margins (right margin includes space for note labels)
+		const margin = { top: 30 * DPR, right: 120 * DPR, bottom: 40 * DPR, left: 60 * DPR };
+		const plotW = W - margin.left - margin.right;
+		const plotH = H - margin.top - margin.bottom;
+
+		// Get current tuning frequencies
+		const tuningObj = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
+		const targetFreqs = tuningObj.freqs;
+		const noteNames = tuningObj.note_names;
+
+		// Determine frequency range (log scale)
+		const allFreqs = [...targetFreqs];
+		if (frequencyHistory.length > 0) {
+			allFreqs.push(...frequencyHistory.map(p => p.freq));
+		}
+		if (currentDetectedFreq) {
+			allFreqs.push(currentDetectedFreq);
+		}
+
+		// Add some padding to the frequency range
+		const minTargetFreq = Math.min(...targetFreqs);
+		const maxTargetFreq = Math.max(...targetFreqs);
+		const freqMin = Math.max(20, minTargetFreq * 0.7);
+		const freqMax = maxTargetFreq * 1.4;
+
+		// Log scale helpers
+		const logMin = Math.log10(freqMin);
+		const logMax = Math.log10(freqMax);
+		const freqToY = (f: number) => {
+			const logF = Math.log10(Math.max(freqMin, Math.min(freqMax, f)));
+			const normalized = (logF - logMin) / (logMax - logMin);
+			return margin.top + plotH * (1 - normalized); // Invert Y so low freqs are at bottom
+		};
+
+		// Time scale (last DEBUG_HISTORY_SECONDS seconds)
+		const now = performance.now();
+		const timeMin = now - DEBUG_HISTORY_SECONDS * 1000;
+		const timeToX = (t: number) => {
+			const normalized = (t - timeMin) / (DEBUG_HISTORY_SECONDS * 1000);
+			return margin.left + plotW * normalized;
+		};
+
+		// Draw grid lines and frequency labels
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+		ctx.lineWidth = 1 * DPR;
+
+		// Horizontal grid lines at nice frequency values
+		const gridFreqs = [30, 50, 80, 100, 150, 200, 300, 400, 500];
+		ctx.font = `${10 * DPR}px monospace`;
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+		ctx.textAlign = 'right';
+		ctx.textBaseline = 'middle';
+
+		for (const f of gridFreqs) {
+			if (f >= freqMin && f <= freqMax) {
+				const y = freqToY(f);
+				ctx.beginPath();
+				ctx.moveTo(margin.left, y);
+				ctx.lineTo(W - margin.right, y);
+				ctx.stroke();
+				ctx.fillText(`${f}`, margin.left - 5 * DPR, y);
+			}
+		}
+
+		// Draw target frequency bands/lines
+		ctx.lineWidth = 2 * DPR;
+		for (let i = 0; i < targetFreqs.length; i++) {
+			const freq = targetFreqs[i];
+			const note = noteNames[i];
+			const y = freqToY(freq);
+
+			// Draw band (±5% around target)
+			const bandTop = freqToY(freq * 1.03);
+			const bandBot = freqToY(freq * 0.97);
+			ctx.fillStyle = 'rgba(76, 175, 80, 0.15)';
+			ctx.fillRect(margin.left, bandTop, plotW, bandBot - bandTop);
+
+			// Draw target line
+			ctx.strokeStyle = 'rgba(76, 175, 80, 0.8)';
+			ctx.setLineDash([5 * DPR, 5 * DPR]);
+			ctx.beginPath();
+			ctx.moveTo(margin.left, y);
+			ctx.lineTo(W - margin.right, y);
+			ctx.stroke();
+			ctx.setLineDash([]);
+
+			// Label
+			ctx.fillStyle = '#4CAF50';
+			ctx.font = `bold ${11 * DPR}px monospace`;
+			ctx.textAlign = 'left';
+			ctx.fillText(`${note} (${freq.toFixed(1)} Hz)`, W - margin.right + 5 * DPR, y);
+		}
+
+		// Draw time axis
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+		ctx.lineWidth = 1 * DPR;
+		ctx.beginPath();
+		ctx.moveTo(margin.left, H - margin.bottom);
+		ctx.lineTo(W - margin.right, H - margin.bottom);
+		ctx.stroke();
+
+		// Time labels
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+		ctx.font = `${10 * DPR}px monospace`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'top';
+		for (let s = 0; s <= DEBUG_HISTORY_SECONDS; s += 3) {
+			const t = now - (DEBUG_HISTORY_SECONDS - s) * 1000;
+			const x = timeToX(t);
+			ctx.fillText(`-${DEBUG_HISTORY_SECONDS - s}s`, x, H - margin.bottom + 5 * DPR);
+		}
+
+		// Draw frequency history as a line
+		if (frequencyHistory.length > 1) {
+			ctx.strokeStyle = 'rgba(255, 235, 59, 0.8)';
+			ctx.lineWidth = 2 * DPR;
+			ctx.beginPath();
+			let started = false;
+			for (const point of frequencyHistory) {
+				const x = timeToX(point.timestamp);
+				const y = freqToY(point.freq);
+				if (!started) {
+					ctx.moveTo(x, y);
+					started = true;
+				} else {
+					ctx.lineTo(x, y);
+				}
+			}
+			ctx.stroke();
+
+			// Draw individual points with confidence-based opacity
+			for (const point of frequencyHistory) {
+				const x = timeToX(point.timestamp);
+				const y = freqToY(point.freq);
+				const alpha = 0.3 + point.confidence * 0.7;
+				ctx.fillStyle = `rgba(255, 235, 59, ${alpha})`;
+				ctx.beginPath();
+				ctx.arc(x, y, 3 * DPR, 0, Math.PI * 2);
+				ctx.fill();
+			}
+		}
+
+		// Highlight current detected frequency
+		if (currentDetectedFreq && frequencyHistory.length > 0) {
+			const lastPoint = frequencyHistory[frequencyHistory.length - 1];
+			const x = timeToX(lastPoint.timestamp);
+			const y = freqToY(currentDetectedFreq);
+
+			// Larger circle for current
+			ctx.fillStyle = '#FF5722';
+			ctx.beginPath();
+			ctx.arc(x, y, 6 * DPR, 0, Math.PI * 2);
+			ctx.fill();
+
+			// Current frequency label
+			ctx.fillStyle = '#FF5722';
+			ctx.font = `bold ${12 * DPR}px monospace`;
+			ctx.textAlign = 'left';
+			ctx.fillText(`${currentDetectedFreq.toFixed(1)} Hz`, x + 10 * DPR, y);
+		}
+
+		// Title
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+		ctx.font = `bold ${12 * DPR}px monospace`;
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'top';
+		ctx.fillText('Frequency Debug (last 15s)', margin.left, 10 * DPR);
+
+		// Legend
+		const legendY = 10 * DPR;
+		const legendX = W - margin.right - 200 * DPR;
+		ctx.font = `${10 * DPR}px monospace`;
+
+		// Detected freq legend
+		ctx.fillStyle = '#FFEB3B';
+		ctx.fillRect(legendX, legendY, 12 * DPR, 12 * DPR);
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+		ctx.fillText('Detected', legendX + 16 * DPR, legendY + 10 * DPR);
+
+		// Target freq legend
+		ctx.fillStyle = '#4CAF50';
+		ctx.fillRect(legendX + 80 * DPR, legendY, 12 * DPR, 12 * DPR);
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+		ctx.fillText('Target', legendX + 96 * DPR, legendY + 10 * DPR);
+	}
+
+	// Show/hide debug graph
+	function showDebugGraph() {
+		debugCanvasVisible = true;
+		// Use tick/setTimeout to let Svelte render the canvas first
+		setTimeout(() => {
+			if (canvas_debug) {
+				const DPR = window.devicePixelRatio || 1;
+				// Get computed size from CSS
+				const rect = canvas_debug.getBoundingClientRect();
+				const w = rect.width || 500;
+				const h = rect.height || 300;
+				canvas_debug.width = w * DPR;
+				canvas_debug.height = h * DPR;
+				ctx_debug = canvas_debug.getContext('2d');
+				drawDebugGraph();
+			}
+		}, 0);
+	}
+
+	function hideDebugGraph() {
+		debugCanvasVisible = false;
 	}
 
 
@@ -971,6 +1228,13 @@
 					lastConfidence = pitch.confidence ?? 1.0;
 					lastRms = pitch.rms ?? 0;
 
+					// Add to debug frequency history
+					currentDetectedFreq = pitch.freq;
+					addFrequencyToHistory(pitch.freq, lastConfidence);
+					if (debugCanvasVisible) {
+						drawDebugGraph();
+					}
+
 					start = performance.now();
 					resetCanvas();
 					particleCents = cents;
@@ -1094,12 +1358,12 @@
 
 <button
 	class="info-btn"
-	on:mouseenter={() => (open = true)}
-	on:mouseleave={() => (open = false)}
-	on:focusin={() => (open = true)}
-	on:focusout={() => (open = false)}
+	on:mouseenter={() => { open = true; showDebugGraph(); }}
+	on:mouseleave={() => { open = false; hideDebugGraph(); }}
+	on:focusin={() => { open = true; showDebugGraph(); }}
+	on:focusout={() => { open = false; hideDebugGraph(); }}
 	aria-describedby="build-id">
-	<!--  tiny info icon (Heroicons “information-circle”)  -->
+	<!--  tiny info icon (Heroicons "information-circle")  -->
 	<svg class="icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
 		<path fill-rule="evenodd"
 			d="M18 10A8 8 0 11 2 10a8 8 0 0116 0zm-8-3a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zM9 8.75a1 1 0 012 0v6.5a1 1 0 11-2 0v-6.5z"
@@ -1120,6 +1384,13 @@
 		</div>
 	{/if}
 </button>
+
+<!-- Debug frequency graph (shown on info hover) -->
+{#if debugCanvasVisible}
+	<div class="debug-graph-container" transition:fade>
+		<canvas bind:this={canvas_debug} id="canvas_debug"></canvas>
+	</div>
+{/if}
 
 <style>
 
@@ -1311,5 +1582,38 @@
 	.tuning-select:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	/* Debug frequency graph */
+	.debug-graph-container {
+		position: fixed;
+		right: 1rem;
+		bottom: 3rem;
+		z-index: 9998;
+		border-radius: 0.5rem;
+		overflow: hidden;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		pointer-events: none;
+	}
+
+	#canvas_debug {
+		width: 500px;
+		height: 300px;
+		display: block;
+	}
+
+	/* Responsive adjustments for smaller screens */
+	@media (max-width: 600px) {
+		.debug-graph-container {
+			right: 0.5rem;
+			bottom: 2.5rem;
+			max-width: calc(100vw - 1rem);
+		}
+
+		#canvas_debug {
+			width: 100%;
+			max-width: 350px;
+			height: 200px;
+		}
 	}
 </style>
