@@ -158,49 +158,128 @@
 		stringDetector: StringDetector | null;
 	};
 
+	/* Instrument presets - different instruments need different processing */
+	type InstrumentPresetType = 'acoustic' | 'electric-clean' | 'electric-distorted' | 'classical' | 'bass' | 'extended-range';
+
+	const INSTRUMENT_PRESETS: { id: InstrumentPresetType; label: string; description: string }[] = [
+		{ id: 'acoustic', label: 'Acoustic', description: 'Standard acoustic guitar' },
+		{ id: 'electric-clean', label: 'Electric (Clean)', description: 'Electric guitar, clean tone' },
+		{ id: 'electric-distorted', label: 'Electric (Distorted)', description: 'Electric guitar with distortion/overdrive' },
+		{ id: 'classical', label: 'Classical/Nylon', description: 'Nylon string classical guitar' },
+		{ id: 'bass', label: 'Bass', description: 'Electric or acoustic bass' },
+		{ id: 'extended-range', label: 'Extended Range', description: '7/8 string guitars' },
+	];
+
 	/* Tuning selections */
 	const TUNINGS: TuningPreset[] = [
-		{ 
-			id: 'standard-e', 
-			label: 'Standard E', 
+		// Standard 6-string tunings
+		{
+			id: 'standard-e',
+			label: 'Standard E',
 			note_names: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
-			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63], 
-			detectors: new Map<number, PitchDetector>(), 
-			stringDetector: null 
+			freqs: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
 		},
-		{ 
-			id: 'flat-e',     
-			label: 'Eb / Half-step Down', 
+		{
+			id: 'flat-e',
+			label: 'Eb / Half-step Down',
 			note_names: ['Eb2', 'Ab2', 'Db3', 'Gb3', 'Bb3', 'Eb4'],
-			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13], 
-			detectors: new Map<number, PitchDetector>(), 
-			stringDetector: null 
+			freqs: [77.78, 103.83, 138.59, 185.00, 233.08, 311.13],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
 		},
-		{ 
-			id: 'drop-d',     
-			label: 'Drop D', 
+		{
+			id: 'drop-d',
+			label: 'Drop D',
 			note_names: ['D2', 'A2', 'D3', 'G3', 'B3', 'E4'],
-			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63], 
-			detectors: new Map<number, PitchDetector>(), 
-			stringDetector: null 
+			freqs: [73.42, 110.00, 146.83, 196.00, 246.94, 329.63],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
 		},
-		// ukulele
-		{ 
-			id: 'ukulele-gcea', 
-			label: 'Ukulele GCEA', 
+		{
+			id: 'd-standard',
+			label: 'D Standard (Full step down)',
+			note_names: ['D2', 'G2', 'C3', 'F3', 'A3', 'D4'],
+			freqs: [73.42, 98.00, 130.81, 174.61, 220.00, 293.66],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		{
+			id: 'open-g',
+			label: 'Open G',
+			note_names: ['D2', 'G2', 'D3', 'G3', 'B3', 'D4'],
+			freqs: [73.42, 98.00, 146.83, 196.00, 246.94, 293.66],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		{
+			id: 'dadgad',
+			label: 'DADGAD',
+			note_names: ['D2', 'A2', 'D3', 'G3', 'A3', 'D4'],
+			freqs: [73.42, 110.00, 146.83, 196.00, 220.00, 293.66],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		// 7-string guitar tunings
+		{
+			id: '7-string-standard',
+			label: '7-String Standard (B)',
+			note_names: ['B1', 'E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+			freqs: [61.74, 82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		{
+			id: '7-string-drop-a',
+			label: '7-String Drop A',
+			note_names: ['A1', 'E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+			freqs: [55.00, 82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		// 8-string guitar tuning
+		{
+			id: '8-string-standard',
+			label: '8-String Standard (F#)',
+			note_names: ['F#1', 'B1', 'E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+			freqs: [46.25, 61.74, 82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		// Ukulele
+		{
+			id: 'ukulele-gcea',
+			label: 'Ukulele GCEA',
 			note_names: ['G4', 'C4', 'E4', 'A4'],
-			freqs: [392.00, 261.63, 329.63, 440.00], 
-			detectors: new Map<number, PitchDetector>(), 
-			stringDetector: null 
-		}, 
-		// base
-		{ 
-			id: 'bass-e',     
-			label: 'Bass EADG', 
+			freqs: [392.00, 261.63, 329.63, 440.00],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		// Bass tunings
+		{
+			id: 'bass-e',
+			label: 'Bass 4-String EADG',
 			note_names: ['E1', 'A1', 'D2', 'G2'],
-			freqs: [41.20, 55.00, 73.42, 98.00], 
-			detectors: new Map<number, PitchDetector>(), 
-			stringDetector: null 
+			freqs: [41.20, 55.00, 73.42, 98.00],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		{
+			id: 'bass-5-string',
+			label: 'Bass 5-String BEADG',
+			note_names: ['B0', 'E1', 'A1', 'D2', 'G2'],
+			freqs: [30.87, 41.20, 55.00, 73.42, 98.00],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
+		},
+		{
+			id: 'bass-drop-d',
+			label: 'Bass Drop D',
+			note_names: ['D1', 'A1', 'D2', 'G2'],
+			freqs: [36.71, 55.00, 73.42, 98.00],
+			detectors: new Map<number, PitchDetector>(),
+			stringDetector: null
 		},
 	];
 	
@@ -232,12 +311,72 @@
 	const stringFftRefine = false;
 	const pitchFftRefine = true;
 
-	// FFT refinement requires large block sizes. 
+	// FFT refinement requires large block sizes.
 	// TODO: the current value of 8 is large leading to slow
-	// updates on UI. But it seems to be very accurate. 
+	// updates on UI. But it seems to be very accurate.
 	const fftBlockSizeMultiplier = 8;
 
 	export let tuning: string = TUNINGS[0].id;
+	let instrumentPreset: InstrumentPresetType = 'acoustic';
+
+	// Detection quality feedback
+	let lastConfidence: number = 0;
+	let lastRms: number = 0;
+
+	// Get instrument-specific configuration
+	function getInstrumentConfig(preset: InstrumentPresetType) {
+		const configs: Record<InstrumentPresetType, {
+			enableAgc: boolean;
+			enableHarmonicCorrection: boolean;
+			targetRms: number;
+			blockMultiplier: number;
+			extraFeatures: number; // bits 3,4,5 for AGC, harmonic, octave correction
+		}> = {
+			'acoustic': {
+				enableAgc: false,
+				enableHarmonicCorrection: false,
+				targetRms: 0.1,
+				blockMultiplier: 1.0,
+				extraFeatures: 0b000000, // No extra features
+			},
+			'electric-clean': {
+				enableAgc: true,
+				enableHarmonicCorrection: true,
+				targetRms: 0.1,
+				blockMultiplier: 1.0,
+				extraFeatures: 0b011000, // AGC + Harmonic correction
+			},
+			'electric-distorted': {
+				enableAgc: true,
+				enableHarmonicCorrection: true,
+				targetRms: 0.15,
+				blockMultiplier: 2.0,
+				extraFeatures: 0b111000, // AGC + Harmonic + Octave correction
+			},
+			'classical': {
+				enableAgc: true,
+				enableHarmonicCorrection: false,
+				targetRms: 0.08,
+				blockMultiplier: 1.5,
+				extraFeatures: 0b001000, // AGC only
+			},
+			'bass': {
+				enableAgc: true,
+				enableHarmonicCorrection: true,
+				targetRms: 0.1,
+				blockMultiplier: 2.0,
+				extraFeatures: 0b111000, // All corrections
+			},
+			'extended-range': {
+				enableAgc: true,
+				enableHarmonicCorrection: true,
+				targetRms: 0.1,
+				blockMultiplier: 2.5,
+				extraFeatures: 0b111000, // All corrections
+			},
+		};
+		return configs[preset];
+	}
 
 	import { onMount, onDestroy } from 'svelte';
 	import { browser, dev } from '$app/environment';
@@ -655,8 +794,10 @@
 		// console.log('- sample rate:', sampleRate);
 		// console.log('- quantum:', quantum);
 
-		// Build string specific detectors
-		TUNINGS.forEach(tuning => {
+		// Build string specific detectors with instrument preset support
+		function buildDetectors(preset: InstrumentPresetType) {
+			const instConfig = getInstrumentConfig(preset);
+			TUNINGS.forEach(tuning => {
 			const freqs = tuning.freqs;
 			let stringFilter = setBits(0, 5);
 			console.log('-------------------------------------');
@@ -670,62 +811,90 @@
 				// G3		196.00		3072
 				// B3		246.94		2048
 				// E4		329.63		2048 or even 1024
-				let bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier;
+				// Block size with instrument-specific multiplier
+				let bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier;
 				const [fMin, fMax] = freqBounds(freq, 120);
-				let features = setBits(0); // 0: fft refinement, 1: Averaging, 2: Clarity
-				let avgBufferSize = 3; 
+				// Base features + instrument-specific extras (bits 3,4,5)
+				let features = setBits(0) | instConfig.extraFeatures;
+				let avgBufferSize = 3;
 				let alpha = 0.4;
-				if (freq === 196.00) {
-					//  * Increase smoothing just for G. Temporarily boost EMA smoothing:
-					//  * let alpha = if note == "G" { 0.2 } else { 0.4 };
-					alpha = 0.2;
-					features = setBits(0, 1, 2); // 0: fft refinement, 1: Averaging
+
+				// G3 (196 Hz) - problematic string with rich harmonics
+				if (Math.abs(freq - 196.00) < 1) {
+					alpha = 0.15;
+					features = setBits(0, 1, 2) | instConfig.extraFeatures;
+					avgBufferSize = 7;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
+				}
+				// Low E2 (82 Hz)
+				else if (Math.abs(freq - 82.41) < 1) {
+					features = setBits(0, 2) | instConfig.extraFeatures;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
+				}
+				// D3 (147 Hz)
+				else if (Math.abs(freq - 146.83) < 1) {
+					features = setBits(0, 1, 2) | instConfig.extraFeatures;
 					avgBufferSize = 5;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
 				}
-				if (freq === 82.41) {
-					features = setBits(0, 2); // 0: fft refinement, 1: Averaging
-					//avgBufferSize = 5;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
-				}
-				if (freq === 146.83) {
-					features = setBits(0, 1, 2); // 0: fft refinement, 1: Averaging
+				// Extended range: Very low frequencies (7/8 string, 5-string bass)
+				else if (freq < 65) {
+					features = setBits(0, 1, 2) | instConfig.extraFeatures;
 					avgBufferSize = 5;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * 2;
+					bl = Math.max(16384, blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2);
 				}
-				console.log('- string', tuning.note_names[freqs.indexOf(freq)]);
-				console.log('  freq:', freq);
-				console.log('  threshold:', threshold);
-				console.log('  block size:', bl);
-				console.log('  freq min, max:', fMin, fMax);
-				console.log('  features:', features);
-				console.log('  avgBufferSize:', avgBufferSize);
-				console.log('  alpha:', alpha);
+				// Bass strings (E1=41Hz to G2=98Hz)
+				else if (freq < 100) {
+					features = setBits(0, 1, 2) | instConfig.extraFeatures;
+					avgBufferSize = 4;
+					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 1.5;
+				}
+
+				console.log('- string', tuning.note_names[freqs.indexOf(freq)], 'preset:', preset);
+				console.log('  freq:', freq, 'block:', bl, 'features:', features.toString(2));
 
 				const detector = new PitchDetector(
-					threshold, 
-					fMin, 
-					fMax, 
-					sampleRate, 
-					bl, 
-					stringFilter, 
-					features, 
-					quantum, 
-					tuning, 
-					avgBufferSize, 
+					threshold,
+					fMin,
+					fMax,
+					sampleRate,
+					bl,
+					stringFilter,
+					features,
+					quantum,
+					tuning,
+					avgBufferSize,
 					alpha);
+
+				// Set expected frequency for octave correction
+				detector.detector.set_expected_freq(freq);
+				// Configure instrument-specific AGC
+				if (instConfig.enableAgc) {
+					detector.detector.set_agc(true, instConfig.targetRms);
+				}
+				// Configure harmonic correction
+				if (instConfig.enableHarmonicCorrection) {
+					detector.detector.set_harmonic_correction(true);
+				}
+
 				detector.add_string_filter(freq);
 				tuning.detectors.set(freq, detector);
 			}
-			// String detector
-			const minFreq = Math.min(...freqs);
-			const maxFreq = Math.max(...freqs);
-			const sd_freq_min = minFreq - 30;
-			const sd_freq_max = maxFreq + 30;
-			tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sampleRate, tuning);
-		});
+			// String detector with extended range for low frequencies
+				const minFreq = Math.min(...freqs);
+				const maxFreq = Math.max(...freqs);
+				const lowBuffer = minFreq < 50 ? 20 : 30;
+				const sd_freq_min = Math.max(20, minFreq - lowBuffer);
+				const sd_freq_max = maxFreq + 30;
+				tuning.stringDetector = new StringDetector(threshold, sd_freq_min, sd_freq_max, sampleRate, tuning);
+			});
+		}
+
+		// Initial build with current preset
+		buildDetectors(instrumentPreset);
 
 		let selectedTuning = tuning;
+		let selectedPreset = instrumentPreset;
 		let tuningObject = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
 
 		let algo1_Array: number[] = [];
@@ -738,9 +907,14 @@
 		workletNode.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
 			const chunk = data; // 128 samples
 
-			if (tuning !== selectedTuning) {
-				// tuning changed
-				// console.log('tuning changed to ', tuning);
+			// Check if tuning or instrument preset changed
+			if (tuning !== selectedTuning || instrumentPreset !== selectedPreset) {
+				console.log('Config changed - tuning:', tuning, 'preset:', instrumentPreset);
+				// Rebuild detectors if preset changed
+				if (instrumentPreset !== selectedPreset) {
+					buildDetectors(instrumentPreset);
+					selectedPreset = instrumentPreset;
+				}
 				const t2 = TUNINGS.find(t => t.id === tuning) || TUNINGS[0];
 				resetDetectors(t2.detectors);
 				selectedTuning = t2.id;
@@ -792,9 +966,13 @@
 
 					const tuningTo = pitch.tuningTo;
 					const cents = tuningTo.cents;
+
+					// Capture confidence and RMS for quality feedback
+					lastConfidence = pitch.confidence ?? 1.0;
+					lastRms = pitch.rms ?? 0;
+
 					start = performance.now();
 					resetCanvas();
-					// drawIndicator(tuningTo, cents);
 					particleCents = cents;
 					updateIndicator(tuningTo, cents);
 					draw_Array.push(performance.now() - start);
@@ -879,6 +1057,16 @@
 			<label class="tuning-label">
 				<select
 					class="tuning-select"
+					bind:value={instrumentPreset}
+					title="Select your instrument type for optimized detection">
+					{#each INSTRUMENT_PRESETS as p}
+						<option value={p.id}>{p.label}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="tuning-label">
+				<select
+					class="tuning-select"
 					bind:value={tuning}>
 					{#each TUNINGS as t}
 						<option value={t.id}>{t.label}</option>
@@ -887,6 +1075,16 @@
 			</label>
 		</div>
     </div>
+	<!-- Signal quality indicator -->
+	{#if lastRms > 0}
+		<div class="signal-indicator" class:weak={lastRms < 0.02} class:good={lastRms >= 0.02 && lastConfidence > 0.6}>
+			{#if lastRms < 0.02}
+				<span class="signal-text">Weak signal - play louder</span>
+			{:else if lastConfidence < 0.5}
+				<span class="signal-text">Unstable - let note ring</span>
+			{/if}
+		</div>
+	{/if}
 	<div id="canvas_container">
 		<PitchParticles cents={particleCents} trailStrength={0} particleCount={50} transparent/>
 		<canvas id="canvas_static"></canvas>
@@ -911,7 +1109,10 @@
 	{#if open}
 		<div class="bubble" id="build-id" transition:fade>
 			Build&nbsp;{buildVersion}<br><br>
+			Preset: {instrumentPreset}<br>
 			Sample rate: {sampleRate} Hz<br>
+			Confidence: {(lastConfidence * 100).toFixed(0)}%<br>
+			Signal (RMS): {(lastRms * 1000).toFixed(1)}<br><br>
 			Performance:<br>
 			 - String Detector: {Math.trunc(algoPerformance_1)} ms<br>
 			 - Pitch Detector: {Math.trunc(algoPerformance_2)} ms<br>
@@ -1019,6 +1220,37 @@
 	#controls {
 		padding: 5px;
 		background-color: transparent;
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+		justify-content: center;
+	}
+
+	/* Signal quality indicator */
+	.signal-indicator {
+		position: fixed;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.4rem 0.8rem;
+		border-radius: 0.3rem;
+		font-size: 0.8rem;
+		z-index: 100;
+		opacity: 0.9;
+		transition: opacity 0.3s;
+	}
+
+	.signal-indicator.weak {
+		background: rgba(255, 152, 0, 0.9);
+		color: #000;
+	}
+
+	.signal-indicator.good {
+		opacity: 0;
+	}
+
+	.signal-text {
+		font-weight: 500;
 	}
 	
 	.tuning-label {

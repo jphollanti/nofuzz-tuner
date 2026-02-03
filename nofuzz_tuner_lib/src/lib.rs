@@ -35,6 +35,118 @@ fn is_bit_set(value: usize, bit: u32) -> bool {
     (value & (1 << bit)) != 0
 }
 
+// ============================================================================
+// Instrument Presets - Different instruments need different processing
+// ============================================================================
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum InstrumentPreset {
+    #[default]
+    Acoustic, // Acoustic guitar - clean fundamental, standard processing
+    ElectricClean, // Electric guitar clean - weaker fundamental, needs harmonic correction
+    ElectricDistorted, // Electric with distortion - lots of harmonics, aggressive filtering
+    Classical,     // Nylon string classical - softer attack, needs more smoothing
+    Bass,          // Bass guitar - extended low range, larger block sizes
+    ExtendedRange, // 7/8 string guitars - very low frequencies
+}
+
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct InstrumentConfig {
+    pub preset: InstrumentPreset,
+    pub highpass_freq: f64,
+    pub yin_threshold: f64,
+    pub block_multiplier: f64,
+    pub enable_agc: bool,
+    pub enable_harmonic_correction: bool,
+    pub target_rms: f64,
+    pub smoothing_alpha: f64,
+}
+
+#[wasm_bindgen]
+impl InstrumentConfig {
+    #[wasm_bindgen(constructor)]
+    pub fn new(preset: InstrumentPreset) -> InstrumentConfig {
+        match preset {
+            InstrumentPreset::Acoustic => InstrumentConfig {
+                preset,
+                highpass_freq: 70.0,
+                yin_threshold: 0.10,
+                block_multiplier: 1.0,
+                enable_agc: false,
+                enable_harmonic_correction: false,
+                target_rms: 0.1,
+                smoothing_alpha: 0.4,
+            },
+            InstrumentPreset::ElectricClean => InstrumentConfig {
+                preset,
+                highpass_freq: 60.0,
+                yin_threshold: 0.15,
+                block_multiplier: 1.0,
+                enable_agc: true,
+                enable_harmonic_correction: true,
+                target_rms: 0.1,
+                smoothing_alpha: 0.35,
+            },
+            InstrumentPreset::ElectricDistorted => InstrumentConfig {
+                preset,
+                highpass_freq: 50.0,
+                yin_threshold: 0.20,
+                block_multiplier: 2.0,
+                enable_agc: true,
+                enable_harmonic_correction: true,
+                target_rms: 0.15,
+                smoothing_alpha: 0.25,
+            },
+            InstrumentPreset::Classical => InstrumentConfig {
+                preset,
+                highpass_freq: 70.0,
+                yin_threshold: 0.12,
+                block_multiplier: 1.5,
+                enable_agc: true,
+                enable_harmonic_correction: false,
+                target_rms: 0.08,
+                smoothing_alpha: 0.3,
+            },
+            InstrumentPreset::Bass => InstrumentConfig {
+                preset,
+                highpass_freq: 30.0,
+                yin_threshold: 0.12,
+                block_multiplier: 2.0,
+                enable_agc: true,
+                enable_harmonic_correction: true,
+                target_rms: 0.1,
+                smoothing_alpha: 0.3,
+            },
+            InstrumentPreset::ExtendedRange => InstrumentConfig {
+                preset,
+                highpass_freq: 25.0,
+                yin_threshold: 0.12,
+                block_multiplier: 2.5,
+                enable_agc: true,
+                enable_harmonic_correction: true,
+                target_rms: 0.1,
+                smoothing_alpha: 0.3,
+            },
+        }
+    }
+}
+
+/// Get the default instrument config for a preset name
+#[wasm_bindgen]
+pub fn get_instrument_config(preset_name: &str) -> InstrumentConfig {
+    match preset_name {
+        "acoustic" => InstrumentConfig::new(InstrumentPreset::Acoustic),
+        "electric-clean" => InstrumentConfig::new(InstrumentPreset::ElectricClean),
+        "electric-distorted" => InstrumentConfig::new(InstrumentPreset::ElectricDistorted),
+        "classical" => InstrumentConfig::new(InstrumentPreset::Classical),
+        "bass" => InstrumentConfig::new(InstrumentPreset::Bass),
+        "extended-range" => InstrumentConfig::new(InstrumentPreset::ExtendedRange),
+        _ => InstrumentConfig::new(InstrumentPreset::Acoustic),
+    }
+}
+
 // Guitar string frequencies cheat-sheet:
 pub static TUNINGS: Lazy<Mutex<HashMap<String, HashMap<String, f64>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -180,6 +292,8 @@ impl TuningTo {
 pub struct PitchResult {
     freq: f64,
     tuning_to: TuningTo,
+    confidence: f64,
+    rms: f64,
 }
 
 #[wasm_bindgen]
@@ -194,7 +308,32 @@ impl PitchResult {
         cents: f64,
     ) -> PitchResult {
         let tuning_to = TuningTo::new(tuning, closest_note, closest_freq, distance, cents);
-        Self { freq, tuning_to }
+        Self {
+            freq,
+            tuning_to,
+            confidence: 1.0,
+            rms: 0.0,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_quality(
+        freq: f64,
+        tuning: String,
+        closest_note: String,
+        closest_freq: f64,
+        distance: f64,
+        cents: f64,
+        confidence: f64,
+        rms: f64,
+    ) -> PitchResult {
+        let tuning_to = TuningTo::new(tuning, closest_note, closest_freq, distance, cents);
+        Self {
+            freq,
+            tuning_to,
+            confidence,
+            rms,
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -206,6 +345,16 @@ impl PitchResult {
     #[wasm_bindgen(getter = tuningTo)]
     pub fn tuning_to(&self) -> TuningTo {
         self.tuning_to.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn confidence(&self) -> f64 {
+        self.confidence
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn rms(&self) -> f64 {
+        self.rms
     }
 }
 
@@ -303,6 +452,95 @@ struct Biquad {
 }
 
 use std::f64::consts::PI;
+
+// ============================================================================
+// Signal Processing Helpers
+// ============================================================================
+
+/// Calculate RMS (Root Mean Square) of a signal
+fn calculate_rms(samples: &[f64]) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    (samples.iter().map(|s| s * s).sum::<f64>() / samples.len() as f64).sqrt()
+}
+
+/// Normalize input signal to a target RMS level (Automatic Gain Control)
+/// This helps with quiet sources like electric guitars through DI
+fn normalize_input(samples: &mut [f64], target_rms: f64) -> f64 {
+    let rms = calculate_rms(samples);
+    if rms > 0.001 {
+        // Avoid division by tiny numbers
+        let gain = (target_rms / rms).min(10.0); // Cap at 10x gain to avoid noise amplification
+        for s in samples.iter_mut() {
+            *s *= gain;
+        }
+    }
+    rms // Return original RMS for quality assessment
+}
+
+/// Correct for harmonic errors - when FFT/YIN locks onto 2nd or 3rd harmonic
+/// This is common with electric guitars where pickups emphasize harmonics
+fn harmonic_correction(refined_freq: f64, approx_freq: f64, tolerance: f64) -> f64 {
+    let ratio = refined_freq / approx_freq;
+    let rounded = ratio.round();
+
+    // Check if refined frequency is a clean multiple of YIN estimate
+    // This indicates we've locked onto a harmonic instead of fundamental
+    if (rounded - ratio).abs() < tolerance && (1.5..=4.0).contains(&rounded) {
+        refined_freq / rounded
+    } else if ratio > 0.4 && ratio < 0.6 {
+        // We might have found the sub-harmonic, double it
+        refined_freq * 2.0
+    } else {
+        refined_freq
+    }
+}
+
+/// Detect and correct octave errors
+/// Common when detecting E4 (329 Hz) when E2 (82 Hz) is played
+fn octave_error_correction(detected: f64, expected: f64, tolerance_cents: f64) -> f64 {
+    if expected <= 0.0 {
+        return detected;
+    }
+
+    let ratio = detected / expected;
+
+    // Check for octave errors (2x or 0.5x)
+    let cents_from_octave_up = 1200.0 * (ratio / 2.0).abs().log2();
+    let cents_from_octave_down = 1200.0 * (ratio * 2.0).abs().log2();
+    let cents_from_expected = 1200.0 * ratio.abs().log2();
+
+    // If we're closer to an octave away than the expected, correct it
+    if cents_from_octave_up.abs() < tolerance_cents
+        && cents_from_octave_up.abs() < cents_from_expected.abs()
+    {
+        detected / 2.0
+    } else if cents_from_octave_down.abs() < tolerance_cents
+        && cents_from_octave_down.abs() < cents_from_expected.abs()
+    {
+        detected * 2.0
+    } else {
+        detected
+    }
+}
+
+/// Calculate detection confidence based on signal characteristics
+/// Returns a value between 0.0 (low confidence) and 1.0 (high confidence)
+fn calculate_confidence(rms: f64, freq_stability: f64, harmonic_ratio: f64) -> f64 {
+    // RMS contribution: louder signals are more reliable
+    let rms_score = (rms * 20.0).min(1.0); // Scale so 0.05 RMS = 1.0
+
+    // Stability contribution: consistent readings are more reliable
+    let stability_score = freq_stability;
+
+    // Harmonic ratio: fundamental should be stronger than harmonics for acoustic
+    // (this might be lower for electric guitars, which is fine)
+    let harmonic_score = (1.0 - harmonic_ratio).max(0.0);
+
+    // Weighted combination
+    (rms_score * 0.4 + stability_score * 0.4 + harmonic_score * 0.2).clamp(0.0, 1.0)
+}
 
 impl Biquad {
     /// High‑pass @ `fc` (Hz) with quality `Q` (e.g. 0.707 for Butterworth)
@@ -457,6 +695,17 @@ pub struct YinPitchDetector {
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
     freq_smoother: FrequencySmoother,
     clarity_smoother: ExpMovingAverage,
+
+    // New options for improved detection
+    enable_agc: bool,
+    target_rms: f64,
+    enable_harmonic_correction: bool,
+    enable_octave_correction: bool,
+    expected_freq: f64, // For octave correction - the target frequency for this string
+
+    // Stability tracking for confidence
+    last_frequencies: VecDeque<f64>,
+    stability_window: usize,
 }
 
 #[wasm_bindgen]
@@ -571,6 +820,11 @@ impl YinPitchDetector {
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(buffer_len);
 
+        // Extract new feature flags from extended feature_mask
+        let enable_agc = is_bit_set(feature_mask, 3);
+        let enable_harmonic_correction = is_bit_set(feature_mask, 4);
+        let enable_octave_correction = is_bit_set(feature_mask, 5);
+
         YinPitchDetector {
             yin,
             sample_rate,
@@ -579,7 +833,102 @@ impl YinPitchDetector {
             fft,
             freq_smoother: FrequencySmoother::new(average_buffer_size),
             clarity_smoother: ExpMovingAverage::new(clarity_alpha),
+            enable_agc,
+            target_rms: 0.1,
+            enable_harmonic_correction,
+            enable_octave_correction,
+            expected_freq: 0.0,
+            last_frequencies: VecDeque::with_capacity(8),
+            stability_window: 8,
         }
+    }
+
+    /// Create a detector with instrument-specific settings
+    #[wasm_bindgen]
+    pub fn new_with_preset(
+        preset: InstrumentPreset,
+        freq_min: f64,
+        freq_max: f64,
+        sample_rate: usize,
+        block: usize,
+        filter_mask: usize,
+        average_buffer_size: usize,
+    ) -> YinPitchDetector {
+        let config = InstrumentConfig::new(preset);
+        let q = 0.707;
+
+        let mut filters = Vec::new();
+
+        // Use preset-specific highpass frequency
+        if is_bit_set(filter_mask, 0) {
+            filters.push(Biquad::new_highpass(
+                sample_rate as f64,
+                config.highpass_freq,
+                q,
+            ));
+        }
+        if is_bit_set(filter_mask, 1) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 50.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 2) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 60.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 3) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 100.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 4) {
+            filters.push(Biquad::new_notch(sample_rate as f64, 120.0, 30.0));
+        }
+        if is_bit_set(filter_mask, 5) {
+            filters.push(Biquad::new_lowpass(sample_rate as f64, 5_000.0, q));
+        }
+
+        let yin = yin::Yin::init(config.yin_threshold, freq_min, freq_max, sample_rate);
+        let buffer_len: usize = (block as f64 * config.block_multiplier) as usize;
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(buffer_len);
+
+        YinPitchDetector {
+            yin,
+            sample_rate,
+            filters,
+            feature_mask: 0b111, // FFT + Averaging + Clarity by default
+            fft,
+            freq_smoother: FrequencySmoother::new(average_buffer_size),
+            clarity_smoother: ExpMovingAverage::new(config.smoothing_alpha),
+            enable_agc: config.enable_agc,
+            target_rms: config.target_rms,
+            enable_harmonic_correction: config.enable_harmonic_correction,
+            enable_octave_correction: true,
+            expected_freq: 0.0,
+            last_frequencies: VecDeque::with_capacity(8),
+            stability_window: 8,
+        }
+    }
+
+    /// Set the expected frequency for this string (used for octave correction)
+    #[wasm_bindgen]
+    pub fn set_expected_freq(&mut self, freq: f64) {
+        self.expected_freq = freq;
+    }
+
+    /// Enable or disable AGC
+    #[wasm_bindgen]
+    pub fn set_agc(&mut self, enable: bool, target_rms: f64) {
+        self.enable_agc = enable;
+        self.target_rms = target_rms;
+    }
+
+    /// Enable or disable harmonic correction
+    #[wasm_bindgen]
+    pub fn set_harmonic_correction(&mut self, enable: bool) {
+        self.enable_harmonic_correction = enable;
+    }
+
+    /// Enable or disable octave correction
+    #[wasm_bindgen]
+    pub fn set_octave_correction(&mut self, enable: bool) {
+        self.enable_octave_correction = enable;
     }
 
     #[wasm_bindgen]
@@ -606,22 +955,29 @@ impl PitchFindTrait for YinPitchDetector {
     fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let mut buf = data.to_vec();
 
-        // apply filters in place to increase frequencies picked up by Yin.
+        // Calculate original RMS for quality assessment
+        let original_rms = calculate_rms(&buf);
+
+        // Apply AGC (Automatic Gain Control) if enabled
+        // This helps with quiet sources like electric guitars through DI
+        if self.enable_agc {
+            normalize_input(&mut buf, self.target_rms);
+        }
+
+        // Apply filters in place to increase frequencies picked up by Yin.
         // Observed changes in unit tests:
         // - E2: before 12, after 35
         // - A2: before 2, after 16
-
         for sample in buf.iter_mut() {
             for filter in &mut self.filters {
                 *sample = filter.process(*sample);
             }
         }
 
-        // simple RMS noise gate
-        // let rms = (buf.iter().map(|s| s*s).sum::<f64>() / buf.len() as f64).sqrt();
-        // if rms < self.noise_gate_threshold {
-        //     return None;  // too quiet → probably just hiss
-        // }
+        // Noise gate: reject very quiet signals
+        if original_rms < 0.001 {
+            return None;
+        }
 
         let estimated_freq = self.yin.estimate_freq(&buf);
         if estimated_freq != f64::INFINITY {
@@ -631,8 +987,14 @@ impl PitchFindTrait for YinPitchDetector {
                 // FFT refinement
                 let buf_f32: Vec<f32> = buf.iter().map(|&x| x as f32).collect();
                 let refined_freq = self.fft_refine_pitch(&buf_f32, estimated_freq as f32);
-                if refined_freq.is_some() {
-                    freq = refined_freq.unwrap() as f64;
+                if let Some(rf) = refined_freq {
+                    freq = rf as f64;
+
+                    // Apply harmonic correction if enabled
+                    // This fixes cases where FFT locks onto 2nd/3rd harmonic instead of fundamental
+                    if self.enable_harmonic_correction {
+                        freq = harmonic_correction(freq, estimated_freq, 0.08);
+                    }
                 }
             } else {
                 // No FFT refinement
@@ -641,6 +1003,11 @@ impl PitchFindTrait for YinPitchDetector {
 
             if freq < 0.0 {
                 return None;
+            }
+
+            // Apply octave correction if enabled and we have an expected frequency
+            if self.enable_octave_correction && self.expected_freq > 0.0 {
+                freq = octave_error_correction(freq, self.expected_freq, 50.0);
             }
 
             if is_bit_set(self.feature_mask, 1) {
@@ -654,7 +1021,6 @@ impl PitchFindTrait for YinPitchDetector {
                     }
                     // Note, freq is deliberately not set to mean_freq
                     // This step is just to prevent fluctuations
-                    //freq = mean_freq;
                 }
             }
 
@@ -663,16 +1029,46 @@ impl PitchFindTrait for YinPitchDetector {
                 freq = self.clarity_smoother.update(freq);
             }
 
+            // Track frequency stability for confidence calculation
+            self.last_frequencies.push_back(freq);
+            if self.last_frequencies.len() > self.stability_window {
+                self.last_frequencies.pop_front();
+            }
+
+            // Calculate frequency stability (0.0 = unstable, 1.0 = perfectly stable)
+            let freq_stability = if self.last_frequencies.len() >= 2 {
+                let mean =
+                    self.last_frequencies.iter().sum::<f64>() / self.last_frequencies.len() as f64;
+                let variance = self
+                    .last_frequencies
+                    .iter()
+                    .map(|f| (f - mean).powi(2))
+                    .sum::<f64>()
+                    / self.last_frequencies.len() as f64;
+                let std_dev = variance.sqrt();
+                // Convert std_dev to stability score (lower std_dev = higher stability)
+                // 1 Hz std_dev = 0.5 stability, 0 Hz = 1.0, 5+ Hz = ~0
+                (1.0 - std_dev / 5.0).clamp(0.0, 1.0)
+            } else {
+                0.5 // Default when we don't have enough samples
+            };
+
+            // Calculate confidence based on signal characteristics
+            let confidence = calculate_confidence(original_rms, freq_stability, 0.3);
+
             // Find closest note
-            let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning).unwrap();
+            let (closest_note, closest_freq, distance) = find_closest_note(freq, tuning)?;
             let cents = 1200.0 * (freq / closest_freq).log2();
-            return Some(PitchResult::new(
+
+            return Some(PitchResult::new_with_quality(
                 freq,
                 tuning.to_string(),
                 closest_note,
                 closest_freq,
                 distance,
                 cents,
+                confidence,
+                original_rms,
             ));
         }
         None
