@@ -1211,19 +1211,20 @@
 
 	#controls-container {
 		position: fixed;
-		bottom: calc(5% + env(safe-area-inset-bottom)); /* avoids the home bar */
-		width: 100%;
+		top: 1rem;
+		right: 1rem;
 		display: flex;
-		justify-content: center;
+		justify-content: flex-end;
+		z-index: 100;
 	}
-	
+
 	#controls {
 		padding: 5px;
 		background-color: transparent;
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 		flex-wrap: wrap;
-		justify-content: center;
+		justify-content: flex-end;
 	}
 
 	/* Signal quality indicator */
