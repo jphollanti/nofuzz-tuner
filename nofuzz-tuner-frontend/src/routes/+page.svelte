@@ -1587,8 +1587,8 @@
 	/* Debug frequency graph */
 	.debug-graph-container {
 		position: fixed;
-		right: 1rem;
-		bottom: 3rem;
+		left: 1rem;
+		bottom: 1rem;
 		z-index: 9998;
 		border-radius: 0.5rem;
 		overflow: hidden;
@@ -1605,8 +1605,8 @@
 	/* Responsive adjustments for smaller screens */
 	@media (max-width: 600px) {
 		.debug-graph-container {
-			right: 0.5rem;
-			bottom: 2.5rem;
+			left: 0.5rem;
+			bottom: 0.5rem;
 			max-width: calc(100vw - 1rem);
 		}
 
