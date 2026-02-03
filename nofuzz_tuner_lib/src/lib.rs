@@ -42,12 +42,12 @@ fn is_bit_set(value: usize, bit: u32) -> bool {
 #[wasm_bindgen]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InstrumentPreset {
-    Acoustic,         // Acoustic guitar - clean fundamental, standard processing
-    ElectricClean,    // Electric guitar clean - weaker fundamental, needs harmonic correction
-    ElectricDistorted,// Electric with distortion - lots of harmonics, aggressive filtering
-    Classical,        // Nylon string classical - softer attack, needs more smoothing
-    Bass,             // Bass guitar - extended low range, larger block sizes
-    ExtendedRange,    // 7/8 string guitars - very low frequencies
+    Acoustic,          // Acoustic guitar - clean fundamental, standard processing
+    ElectricClean,     // Electric guitar clean - weaker fundamental, needs harmonic correction
+    ElectricDistorted, // Electric with distortion - lots of harmonics, aggressive filtering
+    Classical,         // Nylon string classical - softer attack, needs more smoothing
+    Bass,              // Bass guitar - extended low range, larger block sizes
+    ExtendedRange,     // 7/8 string guitars - very low frequencies
 }
 
 impl Default for InstrumentPreset {
@@ -348,7 +348,12 @@ impl PitchResult {
         cents: f64,
     ) -> PitchResult {
         let tuning_to = TuningTo::new(tuning, closest_note, closest_freq, distance, cents);
-        Self { freq, tuning_to, confidence: 1.0, rms: 0.0 }
+        Self {
+            freq,
+            tuning_to,
+            confidence: 1.0,
+            rms: 0.0,
+        }
     }
 
     pub fn new_with_quality(
@@ -362,7 +367,12 @@ impl PitchResult {
         rms: f64,
     ) -> PitchResult {
         let tuning_to = TuningTo::new(tuning, closest_note, closest_freq, distance, cents);
-        Self { freq, tuning_to, confidence, rms }
+        Self {
+            freq,
+            tuning_to,
+            confidence,
+            rms,
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -541,9 +551,13 @@ fn octave_error_correction(detected: f64, expected: f64, tolerance_cents: f64) -
     let cents_from_expected = 1200.0 * ratio.abs().log2();
 
     // If we're closer to an octave away than the expected, correct it
-    if cents_from_octave_up.abs() < tolerance_cents && cents_from_octave_up.abs() < cents_from_expected.abs() {
+    if cents_from_octave_up.abs() < tolerance_cents
+        && cents_from_octave_up.abs() < cents_from_expected.abs()
+    {
         detected / 2.0
-    } else if cents_from_octave_down.abs() < tolerance_cents && cents_from_octave_down.abs() < cents_from_expected.abs() {
+    } else if cents_from_octave_down.abs() < tolerance_cents
+        && cents_from_octave_down.abs() < cents_from_expected.abs()
+    {
         detected * 2.0
     } else {
         detected
@@ -886,7 +900,11 @@ impl YinPitchDetector {
 
         // Use preset-specific highpass frequency
         if is_bit_set(filter_mask, 0) {
-            filters.push(Biquad::new_highpass(sample_rate as f64, config.highpass_freq, q));
+            filters.push(Biquad::new_highpass(
+                sample_rate as f64,
+                config.highpass_freq,
+                q,
+            ));
         }
         if is_bit_set(filter_mask, 1) {
             filters.push(Biquad::new_notch(sample_rate as f64, 50.0, 30.0));
@@ -1058,10 +1076,14 @@ impl PitchFindTrait for YinPitchDetector {
 
             // Calculate frequency stability (0.0 = unstable, 1.0 = perfectly stable)
             let freq_stability = if self.last_frequencies.len() >= 2 {
-                let mean = self.last_frequencies.iter().sum::<f64>() / self.last_frequencies.len() as f64;
-                let variance = self.last_frequencies.iter()
+                let mean =
+                    self.last_frequencies.iter().sum::<f64>() / self.last_frequencies.len() as f64;
+                let variance = self
+                    .last_frequencies
+                    .iter()
                     .map(|f| (f - mean).powi(2))
-                    .sum::<f64>() / self.last_frequencies.len() as f64;
+                    .sum::<f64>()
+                    / self.last_frequencies.len() as f64;
                 let std_dev = variance.sqrt();
                 // Convert std_dev to stability score (lower std_dev = higher stability)
                 // 1 Hz std_dev = 0.5 stability, 0 Hz = 1.0, 5+ Hz = ~0
