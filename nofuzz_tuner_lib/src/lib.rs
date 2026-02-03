@@ -40,20 +40,15 @@ fn is_bit_set(value: usize, bit: u32) -> bool {
 // ============================================================================
 
 #[wasm_bindgen]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum InstrumentPreset {
+    #[default]
     Acoustic,          // Acoustic guitar - clean fundamental, standard processing
     ElectricClean,     // Electric guitar clean - weaker fundamental, needs harmonic correction
     ElectricDistorted, // Electric with distortion - lots of harmonics, aggressive filtering
     Classical,         // Nylon string classical - softer attack, needs more smoothing
     Bass,              // Bass guitar - extended low range, larger block sizes
     ExtendedRange,     // 7/8 string guitars - very low frequencies
-}
-
-impl Default for InstrumentPreset {
-    fn default() -> Self {
-        InstrumentPreset::Acoustic
-    }
 }
 
 #[wasm_bindgen]
@@ -356,6 +351,7 @@ impl PitchResult {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_quality(
         freq: f64,
         tuning: String,
@@ -526,7 +522,7 @@ fn harmonic_correction(refined_freq: f64, approx_freq: f64, tolerance: f64) -> f
 
     // Check if refined frequency is a clean multiple of YIN estimate
     // This indicates we've locked onto a harmonic instead of fundamental
-    if (rounded - ratio).abs() < tolerance && rounded >= 1.5 && rounded <= 4.0 {
+    if (rounded - ratio).abs() < tolerance && (1.5..=4.0).contains(&rounded) {
         refined_freq / rounded
     } else if ratio > 0.4 && ratio < 0.6 {
         // We might have found the sub-harmonic, double it
