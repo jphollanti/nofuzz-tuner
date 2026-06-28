@@ -110,7 +110,7 @@ fn detect_from_input_stream<T: Sample>(
             config,
             move |data: &[T], _| {
                 let f64_vals: Vec<f64> = data.iter().map(|x| x.to_f32() as f64).collect();
-                let freq = (*detector).maybe_find_pitch(&f64_vals, TUNING);
+                let freq = (*detector).process_chunk(&f64_vals, TUNING);
                 if let Some(res) = freq {
                     let tt = res.tuning_to();
                     output(res.freq(), tt.cents(), tt.freq(), tt.distance(), tt.note());

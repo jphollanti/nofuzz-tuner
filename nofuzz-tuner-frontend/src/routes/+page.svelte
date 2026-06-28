@@ -11,7 +11,6 @@
 		detector: any;
 
 		quantum: number;
-		chunkBuf: Float64Array;
 
 		tuning: any;
 
@@ -30,7 +29,6 @@
 			hop: number = 1024
 		) {
 			this.quantum = quantum;
-			this.chunkBuf = new Float64Array(this.quantum);
 			this.tuning = tuning;
 			this.detector = new YinPitchDetector(
 				threshold, 
@@ -51,12 +49,7 @@
 
 		detect(chunk: Float32Array): any | null {
 			if (!chunk) return null;
-			if (chunk.length === this.chunkBuf.length) {
-				this.chunkBuf.set(chunk);
-				return this.detector.process_chunk_js(this.chunkBuf, this.tuning.id);
-			}
-
-			return this.detector.process_chunk_js(new Float64Array(chunk), this.tuning.id);
+			return this.detector.process_chunk_f32_js(chunk, this.tuning.id);
 		}
 	}
 

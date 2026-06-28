@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use js_sys::Float64Array;
+use js_sys::Float32Array;
 use std::cmp::Ordering;
 use wasm_bindgen::prelude::*;
 
@@ -420,8 +420,8 @@ impl ExpMovingAverage {
 }
 
 pub trait PitchFindTrait: Send + Sync {
-    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult>;
-    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32>;
+    fn process_chunk(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult>;
+    fn fft_refine_pitch(&mut self, samples: &[f64], approx_freq: f32) -> Option<f32>;
 }
 
 fn find_closest_note(freq: f64, tuning: &str) -> Option<(String, f64, f64)> {
@@ -471,20 +471,6 @@ fn calculate_rms(samples: &[f64]) -> f64 {
         return 0.0;
     }
     (samples.iter().map(|s| s * s).sum::<f64>() / samples.len() as f64).sqrt()
-}
-
-/// Normalize input signal to a target RMS level (Automatic Gain Control)
-/// This helps with quiet sources like electric guitars through DI
-fn normalize_input(samples: &mut [f64], target_rms: f64) -> f64 {
-    let rms = calculate_rms(samples);
-    if rms > 0.001 {
-        // Avoid division by tiny numbers
-        let gain = (target_rms / rms).min(10.0); // Cap at 10x gain to avoid noise amplification
-        for s in samples.iter_mut() {
-            *s *= gain;
-        }
-    }
-    rms // Return original RMS for quality assessment
 }
 
 /// Correct for harmonic errors - when FFT/YIN locks onto 2nd or 3rd harmonic
@@ -727,10 +713,14 @@ pub struct YinPitchDetector {
     // processed samples are fed to pitch detection.
     raw_ring: Vec<f64>,
     processed_ring: Vec<f64>,
+    raw_scratch: Vec<f64>,
+    processed_scratch: Vec<f64>,
+    fft_scratch: Vec<Complex<f32>>,
     ring_write: usize,
     ring_filled: usize,
     stream_hop_size: usize,
     samples_since_detection: usize,
+    agc_rms_estimate: Option<f64>,
 }
 
 #[wasm_bindgen]
@@ -868,10 +858,14 @@ impl YinPitchDetector {
             stability_window: 8,
             raw_ring: vec![0.0; buffer_len],
             processed_ring: vec![0.0; buffer_len],
+            raw_scratch: vec![0.0; buffer_len],
+            processed_scratch: vec![0.0; buffer_len],
+            fft_scratch: vec![Complex { re: 0.0, im: 0.0 }; buffer_len],
             ring_write: 0,
             ring_filled: 0,
             stream_hop_size: 1024.min(buffer_len),
             samples_since_detection: 0,
+            agc_rms_estimate: None,
         }
     }
 
@@ -938,10 +932,14 @@ impl YinPitchDetector {
             stability_window: 8,
             raw_ring: vec![0.0; buffer_len],
             processed_ring: vec![0.0; buffer_len],
+            raw_scratch: vec![0.0; buffer_len],
+            processed_scratch: vec![0.0; buffer_len],
+            fft_scratch: vec![Complex { re: 0.0, im: 0.0 }; buffer_len],
             ring_write: 0,
             ring_filled: 0,
             stream_hop_size: 1024.min(buffer_len),
             samples_since_detection: 0,
+            agc_rms_estimate: None,
         }
     }
 
@@ -957,6 +955,7 @@ impl YinPitchDetector {
         self.ring_write = 0;
         self.ring_filled = 0;
         self.samples_since_detection = 0;
+        self.agc_rms_estimate = None;
         self.freq_smoother.reset();
         self.clarity_smoother.reset();
         self.last_frequencies.clear();
@@ -998,51 +997,22 @@ impl YinPitchDetector {
     }
 
     #[wasm_bindgen]
-    pub fn maybe_find_pitch_js(
+    pub fn process_chunk_f32_js(
         &mut self,
-        data: &Float64Array,
+        data: &Float32Array,
         tuning: &str,
     ) -> Option<PitchResult> {
-        // Convert the Float64Array from JavaScript to a Rust slice
-        let data_vec = data.to_vec(); // Convert the Float64Array to Vec<f64>
-
-        self.maybe_find_pitch(&data_vec, tuning)
-    }
-
-    #[wasm_bindgen]
-    pub fn process_chunk_js(&mut self, data: &Float64Array, tuning: &str) -> Option<PitchResult> {
         let data_vec = data.to_vec();
-        self.process_chunk(&data_vec, tuning)
+        self.process_chunk_f32(&data_vec, tuning)
     }
 }
 
 impl PitchFindTrait for YinPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
-        let mut buf = data.to_vec();
-
-        // Calculate original RMS for quality assessment
-        let original_rms = calculate_rms(&buf);
-
-        // Apply AGC (Automatic Gain Control) if enabled
-        // This helps with quiet sources like electric guitars through DI
-        if self.enable_agc {
-            normalize_input(&mut buf, self.target_rms);
-        }
-
-        // Apply filters in place to increase frequencies picked up by Yin.
-        // Observed changes in unit tests:
-        // - E2: before 12, after 35
-        // - A2: before 2, after 16
-        for sample in buf.iter_mut() {
-            for filter in &mut self.filters {
-                *sample = filter.process(*sample);
-            }
-        }
-
-        self.find_pitch_in_processed_window(&buf, original_rms, tuning)
+    fn process_chunk(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
+        YinPitchDetector::process_chunk(self, data, tuning)
     }
 
-    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32> {
+    fn fft_refine_pitch(&mut self, samples: &[f64], approx_freq: f32) -> Option<f32> {
         let len = samples.len();
 
         if len != self.block {
@@ -1050,20 +1020,14 @@ impl PitchFindTrait for YinPitchDetector {
         }
 
         // Apply Hann window to samples
-        let mut buffer: Vec<Complex<f32>> = samples
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let hann_window =
-                    0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / len as f32).cos();
-                Complex {
-                    re: x * hann_window,
-                    im: 0.0,
-                }
-            })
-            .collect();
+        for (i, (&x, bin)) in samples.iter().zip(self.fft_scratch.iter_mut()).enumerate() {
+            let hann_window =
+                0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / len as f32).cos();
+            bin.re = x as f32 * hann_window;
+            bin.im = 0.0;
+        }
 
-        self.fft.process(&mut buffer);
+        self.fft.process(&mut self.fft_scratch);
 
         let bin_resolution = self.sample_rate as f32 / len as f32;
         let approx_bin = (approx_freq / bin_resolution).round() as usize;
@@ -1074,20 +1038,20 @@ impl PitchFindTrait for YinPitchDetector {
         }
 
         // Find the actual local peak within ±1 bin around approx_bin
-        let search_bins =
-            approx_bin.saturating_sub(1)..=(approx_bin + 1).min(buffer.len().saturating_sub(1));
+        let search_bins = approx_bin.saturating_sub(1)
+            ..=(approx_bin + 1).min(self.fft_scratch.len().saturating_sub(1));
 
         let (peak_bin, _) = search_bins
-            .map(|bin| (bin, buffer[bin].norm()))
+            .map(|bin| (bin, self.fft_scratch[bin].norm()))
             .max_by(|(_, mag_a), (_, mag_b)| mag_a.partial_cmp(mag_b).unwrap())?;
 
         // Guard: ensure we're not near the edge of the buffer
-        if peak_bin < 1 || peak_bin + 1 >= buffer.len() {
+        if peak_bin < 1 || peak_bin + 1 >= self.fft_scratch.len() {
             return None;
         }
-        let mag_prev = buffer[peak_bin - 1].norm();
-        let mag_curr = buffer[peak_bin].norm();
-        let mag_next = buffer[peak_bin + 1].norm();
+        let mag_prev = self.fft_scratch[peak_bin - 1].norm();
+        let mag_curr = self.fft_scratch[peak_bin].norm();
+        let mag_next = self.fft_scratch[peak_bin + 1].norm();
 
         let denominator = mag_prev - 2.0 * mag_curr + mag_next;
         if denominator.abs() < f32::EPSILON {
@@ -1107,44 +1071,94 @@ impl YinPitchDetector {
             return None;
         }
 
-        let chunk_rms = calculate_rms(data);
-        let gain = if self.enable_agc && chunk_rms > 0.001 {
-            (self.target_rms / chunk_rms).min(10.0)
-        } else {
-            1.0
-        };
+        let gain = self.streaming_gain(calculate_rms(data));
 
         for &sample in data {
-            let mut processed = sample * gain;
-            for filter in &mut self.filters {
-                processed = filter.process(processed);
-            }
-
-            self.raw_ring[self.ring_write] = sample;
-            self.processed_ring[self.ring_write] = processed;
-            self.ring_write = (self.ring_write + 1) % self.block;
-            self.ring_filled = self.block.min(self.ring_filled + 1);
-            self.samples_since_detection += 1;
+            self.push_streaming_sample(sample, gain);
         }
 
+        self.detect_from_streaming_window(tuning)
+    }
+
+    pub fn process_chunk_f32(&mut self, data: &[f32], tuning: &str) -> Option<PitchResult> {
+        if data.is_empty() {
+            return None;
+        }
+
+        let chunk_rms = (data
+            .iter()
+            .map(|s| f64::from(*s) * f64::from(*s))
+            .sum::<f64>()
+            / data.len() as f64)
+            .sqrt();
+        let gain = self.streaming_gain(chunk_rms);
+
+        for &sample in data {
+            self.push_streaming_sample(f64::from(sample), gain);
+        }
+
+        self.detect_from_streaming_window(tuning)
+    }
+
+    fn streaming_gain(&mut self, chunk_rms: f64) -> f64 {
+        if !self.enable_agc || chunk_rms <= 0.001 {
+            return 1.0;
+        }
+
+        const AGC_ALPHA: f64 = 0.05;
+        let rms_estimate = match self.agc_rms_estimate {
+            Some(previous) => AGC_ALPHA * chunk_rms + (1.0 - AGC_ALPHA) * previous,
+            None => chunk_rms,
+        };
+        self.agc_rms_estimate = Some(rms_estimate);
+
+        (self.target_rms / rms_estimate).min(10.0)
+    }
+
+    fn push_streaming_sample(&mut self, sample: f64, gain: f64) {
+        let mut processed = sample * gain;
+        for filter in &mut self.filters {
+            processed = filter.process(processed);
+        }
+
+        self.raw_ring[self.ring_write] = sample;
+        self.processed_ring[self.ring_write] = processed;
+        self.ring_write = (self.ring_write + 1) % self.block;
+        self.ring_filled = self.block.min(self.ring_filled + 1);
+        self.samples_since_detection += 1;
+    }
+
+    fn detect_from_streaming_window(&mut self, tuning: &str) -> Option<PitchResult> {
         if self.ring_filled < self.block || self.samples_since_detection < self.stream_hop_size {
             return None;
         }
 
         self.samples_since_detection = 0;
 
-        let raw_window = self.ring_snapshot(&self.raw_ring);
-        let processed_window = self.ring_snapshot(&self.processed_ring);
-        let original_rms = calculate_rms(&raw_window);
-
-        self.find_pitch_in_processed_window(&processed_window, original_rms, tuning)
+        Self::ring_snapshot_into(
+            &self.raw_ring,
+            self.ring_write,
+            self.block,
+            &mut self.raw_scratch,
+        );
+        Self::ring_snapshot_into(
+            &self.processed_ring,
+            self.ring_write,
+            self.block,
+            &mut self.processed_scratch,
+        );
+        let original_rms = calculate_rms(&self.raw_scratch);
+        let processed_window = std::mem::take(&mut self.processed_scratch);
+        let result = self.find_pitch_in_processed_window(&processed_window, original_rms, tuning);
+        self.processed_scratch = processed_window;
+        result
     }
 
-    fn ring_snapshot(&self, ring: &[f64]) -> Vec<f64> {
-        let mut snapshot = Vec::with_capacity(self.block);
-        snapshot.extend_from_slice(&ring[self.ring_write..]);
-        snapshot.extend_from_slice(&ring[..self.ring_write]);
-        snapshot
+    fn ring_snapshot_into(ring: &[f64], ring_write: usize, block: usize, output: &mut Vec<f64>) {
+        output.clear();
+        output.extend_from_slice(&ring[ring_write..]);
+        output.extend_from_slice(&ring[..ring_write]);
+        debug_assert_eq!(output.len(), block);
     }
 
     fn find_pitch_in_processed_window(
@@ -1164,8 +1178,7 @@ impl YinPitchDetector {
 
             if is_bit_set(self.feature_mask, 0) {
                 // FFT refinement
-                let buf_f32: Vec<f32> = buf.iter().map(|&x| x as f32).collect();
-                let refined_freq = self.fft_refine_pitch(&buf_f32, estimated_freq as f32);
+                let refined_freq = self.fft_refine_pitch(buf, estimated_freq as f32);
                 if let Some(rf) = refined_freq {
                     freq = rf as f64;
 
@@ -1281,7 +1294,7 @@ impl McleodPitchDetector {
 }
 
 impl PitchFindTrait for McleodPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
+    fn process_chunk(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let mut mcleod = McLeodDetector::new(self.size, self.padding);
         let pitch = mcleod.get_pitch(
             data,
@@ -1305,7 +1318,7 @@ impl PitchFindTrait for McleodPitchDetector {
         }
         None
     }
-    fn fft_refine_pitch(&self, _samples: &[f32], approx_freq: f32) -> Option<f32> {
+    fn fft_refine_pitch(&mut self, _samples: &[f64], approx_freq: f32) -> Option<f32> {
         Some(approx_freq)
     }
 }
@@ -1345,7 +1358,7 @@ impl FftPitchDetector {
 }
 
 impl PitchFindTrait for FftPitchDetector {
-    fn maybe_find_pitch(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
+    fn process_chunk(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
         let vec: Vec<f32> = data.iter().map(|&x| x as f32).collect();
 
         self.stream.push_data(vec);
@@ -1379,7 +1392,7 @@ impl PitchFindTrait for FftPitchDetector {
         ))
     }
 
-    fn fft_refine_pitch(&self, _samples: &[f32], approx_freq: f32) -> Option<f32> {
+    fn fft_refine_pitch(&mut self, _samples: &[f64], approx_freq: f32) -> Option<f32> {
         Some(approx_freq)
     }
 }
@@ -1586,7 +1599,7 @@ mod tests {
         }
     }
 
-    use super::{add_tuning_core, PitchFindTrait, YinPitchDetector};
+    use super::{add_tuning_core, YinPitchDetector};
     use hound::WavReader;
     use std::fs::File;
     use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
@@ -1783,12 +1796,11 @@ mod tests {
         let offset = 0; // You can slide this later
 
         let frame = &samples[offset..offset + frame_size];
-        let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
 
         let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
         println!("--- RMS: {}", rms);
 
-        match yin.maybe_find_pitch(&frame_f64, "standard-e") {
+        match yin.process_chunk_f32(frame, "standard-e") {
             Some(res) => {
                 // PitchResult {
                 //     freq: res.freq(),
@@ -1821,7 +1833,7 @@ mod tests {
         let sr: u32 = m4a_get_sample_rate(file);
         assert_eq!(sr, 48_000);
         let samples = read_m4a_as_f32(file);
-        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2", 4);
+        yin_find_note_from_samples(&samples, sr as usize, "standard-e", "A2", 1);
     }
 
     #[test]
@@ -2003,24 +2015,22 @@ mod tests {
             0.4,      // clarity alpha
         );
 
-        let frame_size = 2048;
-        let hop_size = 512; // or 1024 for lower resolution
+        yin.set_streaming_hop_size(512);
+
+        let chunk_size = 128;
         let mut picked_up_something = false;
         let mut picked_up_correct_note = 0;
         let mut picked_up_wrong_note = 0;
-        let process_until = samples.len() / fraction_to_check - frame_size; // we don't need to go through the whole file
+        let process_until = samples.len() / fraction_to_check; // we don't need to go through the whole file
         let mut counter = 0;
-        for i in (0..process_until).step_by(hop_size) {
-            let frame = &samples[i..i + frame_size];
-            let frame_f64: Vec<f64> = frame.iter().map(|&s| s as f64).collect();
-
-            let pitch = yin.maybe_find_pitch(&frame_f64, tuning);
+        for (chunk_index, chunk) in samples[..process_until].chunks(chunk_size).enumerate() {
+            let pitch = yin.process_chunk_f32(chunk, tuning);
             if let Some(res) = pitch {
                 picked_up_something = true;
                 counter += 1;
                 println!(
                     "Time {:.2}s - Pitch: {:.2} Hz",
-                    i as f32 / sample_rate as f32,
+                    (chunk_index * chunk_size) as f32 / sample_rate as f32,
                     res.freq()
                 );
                 println!(
@@ -2035,6 +2045,10 @@ mod tests {
                 } else {
                     picked_up_wrong_note += 1;
                     println!("Picked up the wrong note: {}", res.tuning_to().note());
+                }
+
+                if picked_up_correct_note >= 5 {
+                    break;
                 }
             }
         }
@@ -2090,8 +2104,7 @@ mod tests {
         let mut picked_up_wrong_note = 0;
 
         for chunk in samples[..process_until].chunks(chunk_size) {
-            let chunk_f64: Vec<f64> = chunk.iter().map(|&s| s as f64).collect();
-            let pitch = yin.process_chunk(&chunk_f64, tuning);
+            let pitch = yin.process_chunk_f32(chunk, tuning);
 
             if let Some(res) = pitch {
                 picked_up_something = true;
@@ -2099,6 +2112,10 @@ mod tests {
                     picked_up_correct_note += 1;
                 } else {
                     picked_up_wrong_note += 1;
+                }
+
+                if picked_up_correct_note >= 5 {
+                    break;
                 }
             }
         }
