@@ -10,17 +10,10 @@
 	class PitchDetector {
 		detector: any;
 
-		block: number;
-		buf: Float64Array;
 		quantum: number;
-		hop: number;
+		chunkBuf: Float64Array;
 
 		tuning: any;
-
-		// state
-		write = 0;
-		filled = 0;
-		sinceLastDetection = 0;
 
 		constructor(
 			threshold: number, 
@@ -36,21 +29,20 @@
 			clarityAlpha: number = .4,
 			hop: number = 1024
 		) {
-			this.block = Math.trunc(block);
-			this.buf = new Float64Array(this.block);
 			this.quantum = quantum;
-			this.hop = Math.max(this.quantum, Math.trunc(hop));
+			this.chunkBuf = new Float64Array(this.quantum);
 			this.tuning = tuning;
 			this.detector = new YinPitchDetector(
 				threshold, 
 				freq_min, 
 				freq_max, 
 				sampleRate, 
-				this.block,
+				Math.trunc(block),
 				filters, 
 				features, 
 				averageBufferSize, 
 				clarityAlpha);
+			this.detector.set_streaming_hop_size(hop);
 		}
 
 		add_string_filter(freq: number) {
@@ -59,25 +51,12 @@
 
 		detect(chunk: Float32Array): any | null {
 			if (!chunk) return null;
-
-			this.buf.set(chunk, this.write);
-			this.write = (this.write + this.quantum) % this.block;
-			this.filled = Math.min(this.block, this.filled + this.quantum);
-			this.sinceLastDetection += this.quantum;
-
-			if (this.filled >= this.block && this.sinceLastDetection >= this.hop) {
-				this.sinceLastDetection = 0;
-				return this.detector.maybe_find_pitch_js(this.snapshot(), this.tuning.id);
+			if (chunk.length === this.chunkBuf.length) {
+				this.chunkBuf.set(chunk);
+				return this.detector.process_chunk_js(this.chunkBuf, this.tuning.id);
 			}
-			return null;
-		}
 
-		snapshot(): Float64Array {
-			if (this.write === 0) return this.buf;
-			const ordered = new Float64Array(this.block);
-			ordered.set(this.buf.subarray(this.write));
-			ordered.set(this.buf.subarray(0, this.write), this.block - this.write);
-			return ordered;
+			return this.detector.process_chunk_js(new Float64Array(chunk), this.tuning.id);
 		}
 	}
 
@@ -1035,11 +1014,7 @@
 		let selected_freq = 82.41; // default: E2
 
 		function resetDetector(detector: PitchDetector) {
-			detector.write = 0;
-			detector.filled = 0;
-			detector.sinceLastDetection = 0;
-			detector.buf.fill(0);
-			// detector.detector.reset(freq);
+			detector.detector.reset_streaming_state();
 		}
 
 		function resetDetectors(detectors: Map<number, PitchDetector>) {

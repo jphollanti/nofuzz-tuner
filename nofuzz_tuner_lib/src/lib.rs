@@ -386,6 +386,10 @@ impl FrequencySmoother {
             Some(self.window.iter().sum::<f64>() / self.window.len() as f64)
         }
     }
+
+    fn reset(&mut self) {
+        self.window.clear();
+    }
 }
 
 #[wasm_bindgen]
@@ -408,6 +412,10 @@ impl ExpMovingAverage {
             None => new_value,
         });
         self.current.unwrap()
+    }
+
+    fn reset(&mut self) {
+        self.current = None;
     }
 }
 
@@ -650,6 +658,13 @@ impl Biquad {
 
         y0
     }
+
+    fn reset(&mut self) {
+        self.x1 = 0.0;
+        self.x2 = 0.0;
+        self.y1 = 0.0;
+        self.y2 = 0.0;
+    }
 }
 
 // Post pitch‑detection processing
@@ -689,6 +704,7 @@ impl Biquad {
 pub struct YinPitchDetector {
     yin: yin::Yin,
     sample_rate: usize,
+    block: usize,
     filters: Vec<Biquad>,
 
     feature_mask: usize,
@@ -706,6 +722,15 @@ pub struct YinPitchDetector {
     // Stability tracking for confidence
     last_frequencies: VecDeque<f64>,
     stability_window: usize,
+
+    // Streaming input state. Raw samples are kept for signal quality metrics;
+    // processed samples are fed to pitch detection.
+    raw_ring: Vec<f64>,
+    processed_ring: Vec<f64>,
+    ring_write: usize,
+    ring_filled: usize,
+    stream_hop_size: usize,
+    samples_since_detection: usize,
 }
 
 #[wasm_bindgen]
@@ -828,6 +853,7 @@ impl YinPitchDetector {
         YinPitchDetector {
             yin,
             sample_rate,
+            block: buffer_len,
             filters,
             feature_mask,
             fft,
@@ -840,6 +866,12 @@ impl YinPitchDetector {
             expected_freq: 0.0,
             last_frequencies: VecDeque::with_capacity(8),
             stability_window: 8,
+            raw_ring: vec![0.0; buffer_len],
+            processed_ring: vec![0.0; buffer_len],
+            ring_write: 0,
+            ring_filled: 0,
+            stream_hop_size: 1024.min(buffer_len),
+            samples_since_detection: 0,
         }
     }
 
@@ -891,6 +923,7 @@ impl YinPitchDetector {
         YinPitchDetector {
             yin,
             sample_rate,
+            block: buffer_len,
             filters,
             feature_mask: 0b111, // FFT + Averaging + Clarity by default
             fft,
@@ -903,6 +936,32 @@ impl YinPitchDetector {
             expected_freq: 0.0,
             last_frequencies: VecDeque::with_capacity(8),
             stability_window: 8,
+            raw_ring: vec![0.0; buffer_len],
+            processed_ring: vec![0.0; buffer_len],
+            ring_write: 0,
+            ring_filled: 0,
+            stream_hop_size: 1024.min(buffer_len),
+            samples_since_detection: 0,
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn set_streaming_hop_size(&mut self, hop_size: usize) {
+        self.stream_hop_size = hop_size.max(1).min(self.block);
+    }
+
+    #[wasm_bindgen]
+    pub fn reset_streaming_state(&mut self) {
+        self.raw_ring.fill(0.0);
+        self.processed_ring.fill(0.0);
+        self.ring_write = 0;
+        self.ring_filled = 0;
+        self.samples_since_detection = 0;
+        self.freq_smoother.reset();
+        self.clarity_smoother.reset();
+        self.last_frequencies.clear();
+        for filter in &mut self.filters {
+            filter.reset();
         }
     }
 
@@ -949,6 +1008,12 @@ impl YinPitchDetector {
 
         self.maybe_find_pitch(&data_vec, tuning)
     }
+
+    #[wasm_bindgen]
+    pub fn process_chunk_js(&mut self, data: &Float64Array, tuning: &str) -> Option<PitchResult> {
+        let data_vec = data.to_vec();
+        self.process_chunk(&data_vec, tuning)
+    }
 }
 
 impl PitchFindTrait for YinPitchDetector {
@@ -974,12 +1039,126 @@ impl PitchFindTrait for YinPitchDetector {
             }
         }
 
+        self.find_pitch_in_processed_window(&buf, original_rms, tuning)
+    }
+
+    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32> {
+        let len = samples.len();
+
+        if len != self.block {
+            return None;
+        }
+
+        // Apply Hann window to samples
+        let mut buffer: Vec<Complex<f32>> = samples
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let hann_window =
+                    0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / len as f32).cos();
+                Complex {
+                    re: x * hann_window,
+                    im: 0.0,
+                }
+            })
+            .collect();
+
+        self.fft.process(&mut buffer);
+
+        let bin_resolution = self.sample_rate as f32 / len as f32;
+        let approx_bin = (approx_freq / bin_resolution).round() as usize;
+
+        // Ensure the bin is safely within bounds
+        if approx_bin < 2 || approx_bin >= len / 2 - 2 {
+            return None;
+        }
+
+        // Find the actual local peak within ±1 bin around approx_bin
+        let search_bins =
+            approx_bin.saturating_sub(1)..=(approx_bin + 1).min(buffer.len().saturating_sub(1));
+
+        let (peak_bin, _) = search_bins
+            .map(|bin| (bin, buffer[bin].norm()))
+            .max_by(|(_, mag_a), (_, mag_b)| mag_a.partial_cmp(mag_b).unwrap())?;
+
+        // Guard: ensure we're not near the edge of the buffer
+        if peak_bin < 1 || peak_bin + 1 >= buffer.len() {
+            return None;
+        }
+        let mag_prev = buffer[peak_bin - 1].norm();
+        let mag_curr = buffer[peak_bin].norm();
+        let mag_next = buffer[peak_bin + 1].norm();
+
+        let denominator = mag_prev - 2.0 * mag_curr + mag_next;
+        if denominator.abs() < f32::EPSILON {
+            return Some(peak_bin as f32 * bin_resolution);
+        }
+
+        let delta = 0.5 * (mag_prev - mag_next) / denominator;
+        let refined_bin = peak_bin as f32 + delta;
+
+        Some(refined_bin * bin_resolution)
+    }
+}
+
+impl YinPitchDetector {
+    pub fn process_chunk(&mut self, data: &[f64], tuning: &str) -> Option<PitchResult> {
+        if data.is_empty() {
+            return None;
+        }
+
+        let chunk_rms = calculate_rms(data);
+        let gain = if self.enable_agc && chunk_rms > 0.001 {
+            (self.target_rms / chunk_rms).min(10.0)
+        } else {
+            1.0
+        };
+
+        for &sample in data {
+            let mut processed = sample * gain;
+            for filter in &mut self.filters {
+                processed = filter.process(processed);
+            }
+
+            self.raw_ring[self.ring_write] = sample;
+            self.processed_ring[self.ring_write] = processed;
+            self.ring_write = (self.ring_write + 1) % self.block;
+            self.ring_filled = self.block.min(self.ring_filled + 1);
+            self.samples_since_detection += 1;
+        }
+
+        if self.ring_filled < self.block || self.samples_since_detection < self.stream_hop_size {
+            return None;
+        }
+
+        self.samples_since_detection = 0;
+
+        let raw_window = self.ring_snapshot(&self.raw_ring);
+        let processed_window = self.ring_snapshot(&self.processed_ring);
+        let original_rms = calculate_rms(&raw_window);
+
+        self.find_pitch_in_processed_window(&processed_window, original_rms, tuning)
+    }
+
+    fn ring_snapshot(&self, ring: &[f64]) -> Vec<f64> {
+        let mut snapshot = Vec::with_capacity(self.block);
+        snapshot.extend_from_slice(&ring[self.ring_write..]);
+        snapshot.extend_from_slice(&ring[..self.ring_write]);
+        snapshot
+    }
+
+    fn find_pitch_in_processed_window(
+        &mut self,
+        buf: &[f64],
+        original_rms: f64,
+        tuning: &str,
+    ) -> Option<PitchResult> {
         // Noise gate: reject very quiet signals
         if original_rms < 0.001 {
             return None;
         }
 
-        let estimated_freq = self.yin.estimate_freq(&buf);
+        let estimated_freq = self.yin.estimate_freq(buf);
         if estimated_freq != f64::INFINITY {
             let mut freq: f64 = -1.0;
 
@@ -1072,60 +1251,6 @@ impl PitchFindTrait for YinPitchDetector {
             ));
         }
         None
-    }
-
-    fn fft_refine_pitch(&self, samples: &[f32], approx_freq: f32) -> Option<f32> {
-        let len = samples.len();
-
-        // Apply Hann window to samples
-        let mut buffer: Vec<Complex<f32>> = samples
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let hann_window =
-                    0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / len as f32).cos();
-                Complex {
-                    re: x * hann_window,
-                    im: 0.0,
-                }
-            })
-            .collect();
-
-        self.fft.process(&mut buffer);
-
-        let bin_resolution = self.sample_rate as f32 / len as f32;
-        let approx_bin = (approx_freq / bin_resolution).round() as usize;
-
-        // Ensure the bin is safely within bounds
-        if approx_bin < 2 || approx_bin >= len / 2 - 2 {
-            return None;
-        }
-
-        // Find the actual local peak within ±1 bin around approx_bin
-        let search_bins =
-            approx_bin.saturating_sub(1)..=(approx_bin + 1).min(buffer.len().saturating_sub(1));
-
-        let (peak_bin, _) = search_bins
-            .map(|bin| (bin, buffer[bin].norm()))
-            .max_by(|(_, mag_a), (_, mag_b)| mag_a.partial_cmp(mag_b).unwrap())?;
-
-        // Guard: ensure we're not near the edge of the buffer
-        if peak_bin < 1 || peak_bin + 1 >= buffer.len() {
-            return None;
-        }
-        let mag_prev = buffer[peak_bin - 1].norm();
-        let mag_curr = buffer[peak_bin].norm();
-        let mag_next = buffer[peak_bin + 1].norm();
-
-        let denominator = mag_prev - 2.0 * mag_curr + mag_next;
-        if denominator.abs() < f32::EPSILON {
-            return Some(peak_bin as f32 * bin_resolution);
-        }
-
-        let delta = 0.5 * (mag_prev - mag_next) / denominator;
-        let refined_bin = peak_bin as f32 + delta;
-
-        Some(refined_bin * bin_resolution)
     }
 }
 
@@ -1709,6 +1834,24 @@ mod tests {
     }
 
     #[test]
+    fn test_streaming_yin_standard_e2() {
+        let file: &str = "test_assets/E2.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_stream_note_from_samples(&samples, sr as usize, "standard-e", "E2", 4);
+    }
+
+    #[test]
+    fn test_streaming_yin_standard_g3() {
+        let file: &str = "test_assets/G3_22.m4a";
+        let sr: u32 = m4a_get_sample_rate(file);
+        assert_eq!(sr, 48_000);
+        let samples = read_m4a_as_f32(file);
+        yin_stream_note_from_samples(&samples, sr as usize, "standard-e", "G3", 1);
+    }
+
+    #[test]
     fn test_recorded_yin_standard_b3() {
         let file: &str = "test_assets/B_2.m4a";
         let sr: u32 = m4a_get_sample_rate(file);
@@ -1900,6 +2043,73 @@ mod tests {
         assert!(
             picked_up_correct_note > picked_up_wrong_note * 2,
             "Yin picked up wrong notes too often. Correct notes {}, wrong notes {}",
+            picked_up_correct_note,
+            picked_up_wrong_note
+        );
+    }
+
+    fn yin_stream_note_from_samples(
+        samples: &[f32],
+        sample_rate: usize,
+        tuning: &str,
+        note: &str,
+        fraction_to_check: usize,
+    ) {
+        add_tuning_core(
+            "standard-e".into(),
+            "Standard E".into(),
+            vec![
+                "E2".into(),
+                "A2".into(),
+                "D3".into(),
+                "G3".into(),
+                "B3".into(),
+                "E4".into(),
+            ],
+            vec![82.41, 110.00, 146.83, 196.00, 246.94, 329.63],
+        )
+        .unwrap();
+
+        let mut yin = YinPitchDetector::new(
+            0.1,   // threshold
+            60.0,  // min frequency
+            500.0, // max frequency
+            sample_rate,
+            4096,     // block size
+            0b111110, // filter mask
+            0b101,    // FFT refinement and clarity smoothing
+            3,        // average buffer size
+            0.4,      // clarity alpha
+        );
+        yin.set_streaming_hop_size(512);
+
+        let chunk_size = 128;
+        let process_until = samples.len() / fraction_to_check;
+        let mut picked_up_something = false;
+        let mut picked_up_correct_note = 0;
+        let mut picked_up_wrong_note = 0;
+
+        for chunk in samples[..process_until].chunks(chunk_size) {
+            let chunk_f64: Vec<f64> = chunk.iter().map(|&s| s as f64).collect();
+            let pitch = yin.process_chunk(&chunk_f64, tuning);
+
+            if let Some(res) = pitch {
+                picked_up_something = true;
+                if res.tuning_to().note() == note {
+                    picked_up_correct_note += 1;
+                } else {
+                    picked_up_wrong_note += 1;
+                }
+            }
+        }
+
+        assert!(
+            picked_up_something,
+            "streaming Yin didn't pick up anything."
+        );
+        assert!(
+            picked_up_correct_note > picked_up_wrong_note * 2,
+            "streaming Yin picked up wrong notes too often. Correct notes {}, wrong notes {}",
             picked_up_correct_note,
             picked_up_wrong_note
         );
