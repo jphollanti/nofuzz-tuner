@@ -5,6 +5,7 @@
 */
 class PitchWorkletProcessor extends AudioWorkletProcessor {
     // Forward every render quantum to the main thread
+    /** @param {Float32Array[][]} inputs */
     process(inputs) {
       const input = inputs[0];
       if (input && input[0]) {

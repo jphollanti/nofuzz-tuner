@@ -11,14 +11,16 @@
 		detector: any;
 
 		block: number;
-		buf: Float32Array;
+		buf: Float64Array;
 		quantum: number;
+		hop: number;
 
 		tuning: any;
 
 		// state
 		write = 0;
 		filled = 0;
+		sinceLastDetection = 0;
 
 		constructor(
 			threshold: number, 
@@ -31,18 +33,20 @@
 			quantum: number,
 			tuning: any = null, 
 			averageBufferSize: number = 3,
-			clarityAlpha: number = .4
+			clarityAlpha: number = .4,
+			hop: number = 1024
 		) {
-			this.block = block;
-			this.buf = new Float32Array(this.block);
+			this.block = Math.trunc(block);
+			this.buf = new Float64Array(this.block);
 			this.quantum = quantum;
+			this.hop = Math.max(this.quantum, Math.trunc(hop));
 			this.tuning = tuning;
 			this.detector = new YinPitchDetector(
 				threshold, 
 				freq_min, 
 				freq_max, 
 				sampleRate, 
-				block, 
+				this.block,
 				filters, 
 				features, 
 				averageBufferSize, 
@@ -58,14 +62,22 @@
 
 			this.buf.set(chunk, this.write);
 			this.write = (this.write + this.quantum) % this.block;
-			this.filled += this.quantum;
+			this.filled = Math.min(this.block, this.filled + this.quantum);
+			this.sinceLastDetection += this.quantum;
 
-			if (this.filled >= this.block) {
-				this.filled = 0;
-				const start = performance.now();
-				return this.detector.maybe_find_pitch_js(this.buf, this.tuning.id);
+			if (this.filled >= this.block && this.sinceLastDetection >= this.hop) {
+				this.sinceLastDetection = 0;
+				return this.detector.maybe_find_pitch_js(this.snapshot(), this.tuning.id);
 			}
 			return null;
+		}
+
+		snapshot(): Float64Array {
+			if (this.write === 0) return this.buf;
+			const ordered = new Float64Array(this.block);
+			ordered.set(this.buf.subarray(this.write));
+			ordered.set(this.buf.subarray(0, this.write), this.block - this.write);
+			return ordered;
 		}
 	}
 
@@ -312,9 +324,10 @@
 	const pitchFftRefine = true;
 
 	// FFT refinement requires large block sizes.
-	// TODO: the current value of 8 is large leading to slow
-	// updates on UI. But it seems to be very accurate.
-	const fftBlockSizeMultiplier = 8;
+	// Keep the analysis window long enough for stable low-string FFT refinement,
+	// but use overlapping hops so the UI is not limited by full-window latency.
+	const fftBlockSizeMultiplier = 4;
+	const detectionHop = 1024;
 
 	export let tuning: string = TUNINGS[0].id;
 	let instrumentPreset: InstrumentPresetType = 'acoustic';
@@ -1024,6 +1037,7 @@
 		function resetDetector(detector: PitchDetector) {
 			detector.write = 0;
 			detector.filled = 0;
+			detector.sinceLastDetection = 0;
 			detector.buf.fill(0);
 			// detector.detector.reset(freq);
 		}
@@ -1079,21 +1093,20 @@
 
 				// G3 (196 Hz) - problematic string with rich harmonics
 				if (Math.abs(freq - 196.00) < 1) {
-					alpha = 0.15;
-					features = setBits(0, 1, 2) | instConfig.extraFeatures;
-					avgBufferSize = 7;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
+					alpha = 0.3;
+					features = setBits(0, 2) | instConfig.extraFeatures;
+					bl = blockSize(freq, sampleRate, 4) * fftBlockSizeMultiplier * instConfig.blockMultiplier;
 				}
 				// Low E2 (82 Hz)
 				else if (Math.abs(freq - 82.41) < 1) {
 					features = setBits(0, 2) | instConfig.extraFeatures;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
+					bl = blockSize(freq, sampleRate, 4) * fftBlockSizeMultiplier * instConfig.blockMultiplier;
 				}
 				// D3 (147 Hz)
 				else if (Math.abs(freq - 146.83) < 1) {
 					features = setBits(0, 1, 2) | instConfig.extraFeatures;
-					avgBufferSize = 5;
-					bl = blockSize(freq, sampleRate) * fftBlockSizeMultiplier * instConfig.blockMultiplier * 2;
+					avgBufferSize = 3;
+					bl = blockSize(freq, sampleRate, 4) * fftBlockSizeMultiplier * instConfig.blockMultiplier;
 				}
 				// Extended range: Very low frequencies (7/8 string, 5-string bass)
 				else if (freq < 65) {
@@ -1122,7 +1135,8 @@
 					quantum,
 					tuning,
 					avgBufferSize,
-					alpha);
+					alpha,
+					detectionHop);
 
 				// Set expected frequency for octave correction
 				detector.detector.set_expected_freq(freq);
