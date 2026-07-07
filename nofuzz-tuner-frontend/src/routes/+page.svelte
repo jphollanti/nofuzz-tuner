@@ -439,9 +439,11 @@
 
 		// draw center line
 		const scaleColour = getScaleColour();
+		const gaugeAlpha = 0.55;
 		ctx.beginPath();
 		ctx.strokeStyle = scaleColour;
 		ctx.fillStyle = scaleColour;
+		ctx.globalAlpha = gaugeAlpha;
 		ctx.lineWidth = lineWidth;
 		ctx.moveTo(centerX, drawScaleYMin); // Start above the main line
 		ctx.lineTo(centerX, drawScaleYMax); // End below the main line
@@ -471,6 +473,7 @@
 		ctx.fill();
 		ctx.strokeStyle = scaleColour;
 		ctx.stroke();
+		ctx.globalAlpha = 1;
 	}
 	
 	const getScaleColour = () =>
@@ -630,6 +633,34 @@
 			ctx.restore();
 		}
 
+		function drawNeedleTipTicks(centerX: number, centerY: number, length: number) {
+			const maxAngle = Math.PI / 6;
+			const tickRadius = radius + length + 18 * DPR;
+			const scaleColour = getScaleColour();
+
+			for (let tickCents = -30; tickCents <= 30; tickCents += 5) {
+				const isCenter = tickCents === 0;
+				const isMajor = tickCents % 10 === 0;
+				const angle = -Math.PI / 2 + (tickCents / 30) * maxAngle;
+				const tickLength = (isCenter ? 16 : isMajor ? 10 : 6) * DPR;
+				const innerRadius = tickRadius - tickLength / 2;
+				const outerRadius = tickRadius + tickLength / 2;
+				const innerX = centerX + Math.cos(angle) * innerRadius;
+				const innerY = centerY + Math.sin(angle) * innerRadius;
+				const outerX = centerX + Math.cos(angle) * outerRadius;
+				const outerY = centerY + Math.sin(angle) * outerRadius;
+
+				ctx.beginPath();
+				ctx.strokeStyle = scaleColour;
+				ctx.globalAlpha = isCenter ? 0.55 : isMajor ? 0.32 : 0.18;
+				ctx.lineWidth = (isCenter ? 2 : 1) * DPR;
+				ctx.moveTo(innerX, innerY);
+				ctx.lineTo(outerX, outerY);
+				ctx.stroke();
+			}
+			ctx.globalAlpha = 1;
+		}
+
 		const pixH = Math.floor(h * DPR);
 		const height = pixH;
 		const scaleY = height / 2;
@@ -637,6 +668,7 @@
 		const drawScaleYMin = scaleY - (height * .20);
 		const needleY = drawScaleYMax + radius;
 		let length = drawScaleYMax - drawScaleYMin;
+		drawNeedleTipTicks(midX, needleY, length);
 		drawNeedle(cents, midX, needleY, length, colour);
 		
 		const white = NOTE_COLOR;
