@@ -67,7 +67,7 @@ flowchart TD
 ## Simplified View
 
 ```mermaid
-flowchart LR
+flowchart TD
     Mic[Microphone] --> Worklet[AudioWorklet<br/>128-sample Float32 chunks]
     Worklet --> UI[Svelte frontend]
     UI --> String[String detector<br/>choose active string]
